@@ -28,8 +28,6 @@ struct FustaFS {
 impl FustaFS {
     fn new(filename: &str) -> FustaFS {
         let fasta = from_file(filename).unwrap();
-        let mut buffer = String::new();
-        std::fs::File::open(filename).unwrap().read_to_string(&mut buffer).unwrap();
         eprintln!("{:?}", fasta);
         let mut keys = fasta.iter().map(|f| &f.id).collect::<Vec<_>>();
         keys.sort();
@@ -132,13 +130,22 @@ impl Filesystem for FustaFS {
         eprintln!("READ {} {} | {}", ino, offset, size);
 
         if ino >= 2 && ino <= self.fasta.len() as u64 + 2 {
-            let id = (ino - 2) as usize;
-            let end = if offset + size as i64 >= self.fasta[id].len as i64 {
-                self.fasta[id].len as i64
-            } else {
-                offset + size as i64
-            };
-            reply.data(&self.mmap[self.fasta[id].pos.0 + offset as usize .. self.fasta[id].pos.0 + end as usize]);
+            if false { // mmap
+                let id = (ino - 2) as usize;
+                let end = if offset + size as i64 >= self.fasta[id].len as i64 {
+                    self.fasta[id].len as i64
+                } else {
+                    offset + size as i64
+                };
+                reply.data(&self.mmap[self.fasta[id].pos.0 + offset as usize .. self.fasta[id].pos.0 + end as usize]);
+            } else { // fseek
+                let id = (ino - 2) as usize;
+                let mut buffer = vec![0u8; size as usize];
+                let mut f = std::fs::File::open(&self.filename).unwrap();
+                f.seek(SeekFrom::Start(self.fasta[id].pos.0 as u64 + offset as u64)).unwrap();
+                let _ = f.read(&mut buffer).unwrap();
+                reply.data(&buffer);
+            }
         } else {
             eprintln!("\t{} is not a file", ino);
             reply.error(ENOENT);

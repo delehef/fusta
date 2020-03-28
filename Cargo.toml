@@ -12,3 +12,4 @@ simplelog = "0.7"
 libc = "0.2"
 clap = "2.0"
 ctrlc = { version = "3.0", features = ["termination"] }
+daemonize = "0.4"

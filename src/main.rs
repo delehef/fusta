@@ -5,6 +5,7 @@ use std::ffi::OsStr;
 use std::time::Duration;
 use std::fs;
 use libc::ENOENT;
+use daemonize::*;
 
 use memmap;
 use std::io::SeekFrom;
@@ -204,6 +205,10 @@ fn main() {
              .short("v")
              .multiple(true)
              .help("Sets the level of verbosity"))
+        .arg(Arg::with_name("daemon")
+             .short("D")
+             .long("daemon")
+             .help("Launch in the background; will exit when unmounted"))
 
         .arg(Arg::with_name("mmap")
              .short("M")
@@ -222,18 +227,29 @@ fn main() {
 
     let log_level = match args.occurrences_of("v") {
         0 => LevelFilter::Warn,
-            1 => LevelFilter::Info,
-            2 => LevelFilter::Debug,
-            3 | _ => LevelFilter::Trace,
+        1 => LevelFilter::Info,
+        2 => LevelFilter::Debug,
+        3 | _ => LevelFilter::Trace,
     };
+    let log_config = ConfigBuilder::new()
+        .set_time_format_str("")
+        .build();
 
-    TermLogger::init(
-        log_level,
-        ConfigBuilder::new()
-            .set_time_format_str("")
-            .build(),
-        TerminalMode::Mixed
-    ).expect("Unable to initialize logger");
+    if args.is_present("daemon") {
+        let mut log_file = env::temp_dir();
+        log_file.push("fusta.log");
+        WriteLogger::new(log_level, log_config, std::fs::File::create(log_file).unwrap());
+
+        let mut pid_file = env::temp_dir();
+        pid_file.push("fusta.pid");
+
+        Daemonize::new()
+            .pid_file(pid_file)
+            .working_directory(std::env::current_dir().expect("Unable to read current directory"))
+            .start().unwrap();
+    } else {
+        TermLogger::init(log_level, log_config, TerminalMode::Mixed).expect("Unable to initialize logger");
+    }
 
 
     let fasta_file = value_t!(args, "FASTA", String).unwrap();

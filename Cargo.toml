@@ -1,0 +1,12 @@
+[package]
+name = "fusta"
+version = "0.1.0"
+authors = ["Franklin Delehelle <franklin.delehelle@odena.eu>"]
+edition = "2018"
+
+[dependencies]
+mmap = "*"
+fuse = { git = "https://github.com/zargony/fuse-rs" }
+log = "0.4"
+env_logger = "0.7"
+libc = "0.2"

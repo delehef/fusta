@@ -6,6 +6,11 @@ use std::time::Duration;
 use std::fs;
 use libc::ENOENT;
 
+
+use std::io;
+use std::io::SeekFrom;
+use std::io::prelude::*;
+
 use fusta::fasta::*;
 
 const TTL: Duration = Duration::from_secs(100);
@@ -16,12 +21,21 @@ struct FustaFS {
     metadata: fs::Metadata,
     root_dir_attrs: FileAttr,
     entries: Vec<(u64, fuse::FileType, String)>,
+    filename: String,
 }
 
 
 impl FustaFS {
     fn new(filename: &str) -> FustaFS {
         let fasta = from_file(filename).unwrap();
+        let mut buffer = String::new();
+        std::fs::File::open(filename).unwrap().read_to_string(&mut buffer).unwrap();
+        eprintln!("{:?}", fasta);
+        let mut keys = fasta.iter().map(|f| &f.id).collect::<Vec<_>>();
+        keys.sort();
+        keys.dedup();
+        if keys.len() != fasta.len() {panic!("Duplicated keys")}
+
         let mut entries = vec![
             (1, FileType::Directory, ".".to_owned()),
             (1, FileType::Directory, "..".to_owned()),
@@ -30,33 +44,34 @@ impl FustaFS {
             entries.push(((i + 2) as u64, FileType::RegularFile, fragment.id.to_owned()))
         }
 
-        FustaFS {
-            fasta: fasta,
-            root_dir_attrs: FileAttr {
-                ino: 1,
-                size: 0,
-                blocks: 0,
-                atime: std::time::SystemTime::now(),
-                mtime: std::time::SystemTime::now(),
-                ctime: std::time::SystemTime::now(),
-                crtime: std::time::SystemTime::now(),
-                kind: FileType::Directory,
-                perm: 0o555,
-                nlink: 2,
-                uid: unsafe { libc::geteuid() },
-                gid: unsafe { libc::getgid() },
-                rdev: 0,
-                flags: 0,
-            },
-            metadata: fs::metadata(filename).unwrap(),
-            entries: entries,
-        }
+            FustaFS {
+                fasta: fasta,
+                filename: filename.to_owned(),
+                root_dir_attrs: FileAttr {
+                    ino: 1,
+                    size: 0,
+                    blocks: 0,
+                    atime: std::time::SystemTime::now(),
+                    mtime: std::time::SystemTime::now(),
+                    ctime: std::time::SystemTime::now(),
+                    crtime: std::time::SystemTime::now(),
+                    kind: FileType::Directory,
+                    perm: 0o555,
+                    nlink: 2,
+                    uid: unsafe { libc::geteuid() },
+                    gid: unsafe { libc::getgid() },
+                    rdev: 0,
+                    flags: 0,
+                },
+                metadata: fs::metadata(filename).unwrap(),
+                entries: entries,
+            }
     }
 
     fn fragment_to_fileattrs(&self, ino: u64, fragment: &Fragment) -> FileAttr {
         FileAttr {
             ino: ino,
-            size: fragment.sequence.len() as u64,
+            size: (fragment.pos.1 - fragment.pos.0) as u64,
             blocks: 1,
             atime: self.metadata.accessed().unwrap(),
             mtime: self.metadata.modified().unwrap(),
@@ -76,43 +91,59 @@ impl FustaFS {
 
 impl Filesystem for FustaFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        eprintln!("LOOKUP {}/{:?}", parent, name);
+
         if parent == 1  {
             if let Some(i) = (0 .. self.fasta.len()).find(|&i| self.fasta[i].id == name.to_str().unwrap()) {
                 let fragment = &self.fasta[i];
                 let ino = i as u64 + 2;
                 reply.entry(&TTL, &self.fragment_to_fileattrs(ino, &fragment), 0);
             } else {
+                eprintln!("\t{:?} does not exist", name);
                 reply.error(ENOENT);
             }
         } else {
+            eprintln!("\tParent {} does not exist", parent);
             reply.error(ENOENT);
         }
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
+        eprintln!("GETATTR {}", ino);
+
         match ino {
             1 => reply.attr(&TTL, &self.root_dir_attrs),
-            ino if ino >= 2 && ino < self.fasta.len() as u64 - 2 => {
+            ino if ino >= 2 && ino < self.fasta.len() as u64 + 2 => {
                 let fasta_id = (ino - 2) as usize;
                 let fragment = &self.fasta[fasta_id];
                 reply.attr(&TTL, &self.fragment_to_fileattrs(ino, &fragment))
             },
-            _ => reply.error(ENOENT),
+            _ => {
+                eprintln!("\tino {} does not exist ({:?})", ino, self.fasta.len());
+                reply.error(ENOENT)
+            },
         }
     }
 
     fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, size: u32, reply: ReplyData) {
+        eprintln!("READ {} {} -> {}", ino, offset, size);
+
         if ino >= 2 && ino <= self.fasta.len() as u64 + 2 {
             let id = (ino - 2) as usize;
-            eprintln!("{} -> {}/{}B\n{} & {}", ino, id, self.fasta[id].sequence.len(), offset, size);
-            let end = std::cmp::min(self.fasta[id].sequence.len() as u32, offset as u32 + size) as usize;
-            reply.data(&self.fasta[id].sequence[offset as usize .. end]);
+            let mut buffer = vec![0u8; size as usize];
+            let mut f = std::fs::File::open(&self.filename).unwrap();
+            f.seek(SeekFrom::Start(self.fasta[id].pos.0 as u64 + offset as u64)).unwrap();
+            let n = f.read(&mut buffer).unwrap();
+            reply.data(&buffer);
         } else {
+            eprintln!("\t{} is not a file", ino);
             reply.error(ENOENT);
         }
     }
 
     fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
+        eprintln!("READDIR {}", ino);
+
         if ino != 1 {
             reply.error(ENOENT);
             return;

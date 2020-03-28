@@ -5,7 +5,7 @@ authors = ["Franklin Delehelle <franklin.delehelle@odena.eu>"]
 edition = "2018"
 
 [dependencies]
-mmap = "*"
+memmap = "0.7"
 fuse = { git = "https://github.com/zargony/fuse-rs" }
 log = "0.4"
 env_logger = "0.7"

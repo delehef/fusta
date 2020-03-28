@@ -6,8 +6,7 @@ use std::time::Duration;
 use std::fs;
 use libc::ENOENT;
 
-
-use std::io;
+use memmap;
 use std::io::SeekFrom;
 use std::io::prelude::*;
 
@@ -22,6 +21,7 @@ struct FustaFS {
     root_dir_attrs: FileAttr,
     entries: Vec<(u64, fuse::FileType, String)>,
     filename: String,
+    mmap: memmap::Mmap,
 }
 
 
@@ -44,28 +44,31 @@ impl FustaFS {
             entries.push(((i + 2) as u64, FileType::RegularFile, fragment.id.to_owned()))
         }
 
-            FustaFS {
-                fasta: fasta,
-                filename: filename.to_owned(),
-                root_dir_attrs: FileAttr {
-                    ino: 1,
-                    size: 0,
-                    blocks: 0,
-                    atime: std::time::SystemTime::now(),
-                    mtime: std::time::SystemTime::now(),
-                    ctime: std::time::SystemTime::now(),
-                    crtime: std::time::SystemTime::now(),
-                    kind: FileType::Directory,
-                    perm: 0o555,
-                    nlink: 2,
-                    uid: unsafe { libc::geteuid() },
-                    gid: unsafe { libc::getgid() },
-                    rdev: 0,
-                    flags: 0,
-                },
-                metadata: fs::metadata(filename).unwrap(),
-                entries: entries,
-            }
+        let f = std::fs::File::open(filename).unwrap();
+
+        FustaFS {
+            fasta: fasta,
+            filename: filename.to_owned(),
+            root_dir_attrs: FileAttr {
+                ino: 1,
+                size: 0,
+                blocks: 0,
+                atime: std::time::SystemTime::now(),
+                mtime: std::time::SystemTime::now(),
+                ctime: std::time::SystemTime::now(),
+                crtime: std::time::SystemTime::now(),
+                kind: FileType::Directory,
+                perm: 0o555,
+                nlink: 2,
+                uid: unsafe { libc::geteuid() },
+                gid: unsafe { libc::getgid() },
+                rdev: 0,
+                flags: 0,
+            },
+            metadata: fs::metadata(filename).unwrap(),
+            entries: entries,
+            mmap: unsafe { memmap::MmapOptions::new().map(&f).unwrap() },
+        }
     }
 
     fn fragment_to_fileattrs(&self, ino: u64, fragment: &Fragment) -> FileAttr {
@@ -126,15 +129,16 @@ impl Filesystem for FustaFS {
     }
 
     fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, size: u32, reply: ReplyData) {
-        eprintln!("READ {} {} -> {}", ino, offset, size);
+        eprintln!("READ {} {} | {}", ino, offset, size);
 
         if ino >= 2 && ino <= self.fasta.len() as u64 + 2 {
             let id = (ino - 2) as usize;
-            let mut buffer = vec![0u8; size as usize];
-            let mut f = std::fs::File::open(&self.filename).unwrap();
-            f.seek(SeekFrom::Start(self.fasta[id].pos.0 as u64 + offset as u64)).unwrap();
-            let n = f.read(&mut buffer).unwrap();
-            reply.data(&buffer);
+            let end = if offset + size as i64 >= self.fasta[id].len as i64 {
+                self.fasta[id].len as i64
+            } else {
+                offset + size as i64
+            };
+            reply.data(&self.mmap[self.fasta[id].pos.0 + offset as usize .. self.fasta[id].pos.0 + end as usize]);
         } else {
             eprintln!("\t{} is not a file", ino);
             reply.error(ENOENT);

@@ -8,7 +8,7 @@ edition = "2018"
 memmap = "0.7"
 fuse = { git = "https://github.com/zargony/fuse-rs" }
 log = "0.4"
-env_logger = "0.7"
+simplelog = "0.7"
 libc = "0.2"
 clap = "2.0"
 ctrlc = { version = "3.0", features = ["termination"] }

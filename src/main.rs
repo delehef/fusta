@@ -14,6 +14,9 @@ use clap::*;
 
 use fusta::fasta::*;
 
+use log::*;
+use simplelog::*;
+
 const TTL: Duration = Duration::from_secs(100);
 
 
@@ -35,10 +38,10 @@ struct FustaFS {
 
 impl FustaFS {
     fn new(settings: FustaSettings, filename: &str) -> FustaFS {
-        eprintln!("Reading {}...", filename);
+        info!("Reading {}...", filename);
         let fasta_file = std::fs::File::open(filename).unwrap();
         let fragments = FastaReader::new(fasta_file, settings.keep_labels).collect::<Vec<_>>();
-        eprintln!("Done.");
+        info!("Done.");
         let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
         keys.sort();
         keys.dedup();
@@ -103,7 +106,7 @@ impl FustaFS {
 
 impl Filesystem for FustaFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        eprintln!("LOOKUP {}/{:?}", parent, name);
+        debug!("LOOKUP {}/{:?}", parent, name);
 
         if parent == 1  {
             if let Some(i) = (0 .. self.fasta.len()).find(|&i| self.fasta[i].id == name.to_str().unwrap()) {
@@ -111,17 +114,17 @@ impl Filesystem for FustaFS {
                 let ino = i as u64 + 2;
                 reply.entry(&TTL, &self.fragment_to_fileattrs(ino, &fragment), 0);
             } else {
-                eprintln!("\t{:?} does not exist", name);
+                debug!("\t{:?} does not exist", name);
                 reply.error(ENOENT);
             }
         } else {
-            eprintln!("\tParent {} does not exist", parent);
+            debug!("\tParent {} does not exist", parent);
             reply.error(ENOENT);
         }
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-        eprintln!("GETATTR {}", ino);
+        debug!("GETATTR {}", ino);
 
         match ino {
             1 => reply.attr(&TTL, &self.root_dir_attrs),
@@ -131,22 +134,20 @@ impl Filesystem for FustaFS {
                 reply.attr(&TTL, &self.fragment_to_fileattrs(ino, &fragment))
             },
             _ => {
-                eprintln!("\tino {} does not exist ({:?})", ino, self.fasta.len());
+                debug!("\tino {} does not exist ({:?})", ino, self.fasta.len());
                 reply.error(ENOENT)
             },
         }
     }
 
     fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, size: u32, reply: ReplyData) {
-        eprintln!("READ {} {} | {}", ino, offset, size);
+        debug!("READ {} {} | {}", ino, offset, size);
 
         if ino >= 2 && ino <= self.fasta.len() as u64 + 2 {
             let id = (ino - 2) as usize;
 
             let mut buffer;
             let out = if let Some(mmap) = &self.mmap {
-                eprintln!("Using MMAP");
-
                 let end = if offset + size as i64 >= self.fasta[id].len as i64 {
                     self.fasta[id].len as i64
                 } else {
@@ -160,17 +161,15 @@ impl Filesystem for FustaFS {
                 let _ = f.read(&mut buffer).unwrap();
                 &buffer
             };
-
             reply.data(&out)
-
         } else {
-            eprintln!("\t{} is not a file", ino);
+            debug!("\t{} is not a file", ino);
             reply.error(ENOENT);
         }
     }
 
     fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
-        eprintln!("READDIR {}", ino);
+        debug!("READDIR {}", ino);
 
         if ino != 1 {
             reply.error(ENOENT);
@@ -185,8 +184,6 @@ impl Filesystem for FustaFS {
 }
 
 fn main() {
-    env_logger::init();
-
     let args = App::new("fusta")
         .setting(AppSettings::ColoredHelp)
         .setting(AppSettings::ColorAuto)
@@ -202,6 +199,12 @@ fn main() {
              .help("The mountpoint")
              .required(true)
              .index(2))
+
+        .arg(Arg::with_name("v")
+             .short("v")
+             .multiple(true)
+             .help("Sets the level of verbosity"))
+
         .arg(Arg::with_name("mmap")
              .short("M")
              .long("mmap")
@@ -211,12 +214,27 @@ fn main() {
              .short("E")
              .long("non-empty")
              .help("Perform the mount even if the destination folder is not empty"))
-
         .arg(Arg::with_name("labels")
              .short("L")
              .long("keep-labels")
              .help("Keep the FASTA labels in the virtual files"))
         .get_matches();
+
+    let log_level = match args.occurrences_of("v") {
+        0 => LevelFilter::Warn,
+            1 => LevelFilter::Info,
+            2 => LevelFilter::Debug,
+            3 | _ => LevelFilter::Trace,
+    };
+
+    TermLogger::init(
+        log_level,
+        ConfigBuilder::new()
+            .set_time_format_str("")
+            .build(),
+        TerminalMode::Mixed
+    ).expect("Unable to initialize logger");
+
 
     let fasta_file = value_t!(args, "FASTA", String).unwrap();
     let mountpoint = value_t!(args, "DEST", String).unwrap();
@@ -226,24 +244,25 @@ fn main() {
         keep_labels: args.is_present("labels"),
     };
 
+    info!("Using MMAP:      {}", settings.mmap);
+    info!("Keeping labels:  {}", settings.mmap);
 
     let fs = FustaFS::new(settings, &fasta_file);
     if !std::path::Path::new(&mountpoint).is_dir() {
-        panic!("{} is not a directory", mountpoint)
+        error!("{} is not a directory", mountpoint);
+        std::process::exit(1);
     }
     if args.is_present("nonempty") {
         fuse_options.push(&OsStr::new("-o"));
         fuse_options.push(&OsStr::new("nonempty"));
     }
     if !args.is_present("nonempty") && std::fs::read_dir(&mountpoint).unwrap().take(1).count() != 0 {
-        panic!("{} is not empty. Use the -E flag if you want to mount in a non-empty directory.", mountpoint);
+        error!("{} is not empty. Use the -E flag if you want to mount in a non-empty directory.", mountpoint);
+        std::process::exit(1);
     }
 
-    eprintln!("Options => {:?}", fuse_options);
-
-
     ctrlc::set_handler(move || {
-        eprintln!("Ctrl-C received, exiting.");
+        info!("Ctrl-C received, exiting.");
         std::process::exit(0);
     }).expect("Error setting Ctrl-C handler");
 

@@ -142,7 +142,8 @@ impl Filesystem for FustaFS {
         if ino >= 2 && ino <= self.fasta.len() as u64 + 2 {
             let id = (ino - 2) as usize;
 
-            if let Some(mmap) = &self.mmap {
+            let mut buffer;
+            let out = if let Some(mmap) = &self.mmap {
                 eprintln!("Using MMAP");
 
                 let end = if offset + size as i64 >= self.fasta[id].len as i64 {
@@ -150,14 +151,17 @@ impl Filesystem for FustaFS {
                 } else {
                     offset + size as i64
                 };
-                reply.data(&mmap[self.fasta[id].pos.0 + offset as usize .. self.fasta[id].pos.0 + end as usize]);
+                &mmap[self.fasta[id].pos.0 + offset as usize .. self.fasta[id].pos.0 + end as usize]
             } else { // fseek
-                let mut buffer = vec![0u8; size as usize];
+                buffer = vec![0u8; size as usize];
                 let mut f = std::fs::File::open(&self.filename).unwrap();
                 f.seek(SeekFrom::Start(self.fasta[id].pos.0 as u64 + offset as u64)).unwrap();
                 let _ = f.read(&mut buffer).unwrap();
-                reply.data(&buffer);
-            }
+                &buffer
+            };
+
+            reply.data(&out)
+
         } else {
             eprintln!("\t{} is not a file", ino);
             reply.error(ENOENT);
@@ -201,11 +205,17 @@ fn main() {
              .short("M")
              .long("mmap")
              .help("Use mmap instead of seek to browse FASTA fragments. Faster, but memory hungry"))
+
+        .arg(Arg::with_name("nonempty")
+             .short("E")
+             .long("non-empty")
+             .help("Perform the mount even if the destination folder is not empty"))
+
         .get_matches();
 
     let fasta_file = value_t!(args, "FASTA", String).unwrap();
     let mountpoint = value_t!(args, "DEST", String).unwrap();
-
+    let mut fuse_options: Vec<&OsStr> = Vec::new();
     let settings = FustaSettings {
         mmap: args.is_present("mmap"),
         labels: false,
@@ -213,6 +223,19 @@ fn main() {
 
 
     let fs = FustaFS::new(settings, &fasta_file);
-    // TODO check that mountpoint exists
-    fuse::mount(fs, &mountpoint, &[]).unwrap();
+    if !std::path::Path::new(&mountpoint).is_dir() {
+        panic!("{} is not a directory", mountpoint)
+    }
+
+    if args.is_present("nonempty") {
+        fuse_options.push(&OsStr::new("-o"));
+        fuse_options.push(&OsStr::new("nonempty"));
+    }
+    if !args.is_present("nonempty") && std::fs::read_dir(&mountpoint).unwrap().take(1).count() != 0 {
+        panic!("{} is not empty. Use the -E flag if you want to mount in a non-empty directory.", mountpoint);
+    }
+
+    eprintln!("Options => {:?}", fuse_options);
+
+    fuse::mount(fs, &mountpoint, &fuse_options).unwrap();
 }

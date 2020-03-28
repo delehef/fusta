@@ -19,7 +19,7 @@ const TTL: Duration = Duration::from_secs(100);
 
 struct FustaSettings {
     mmap: bool,
-    labels: bool,
+    keep_labels: bool,
 }
 
 struct FustaFS {
@@ -36,25 +36,26 @@ struct FustaFS {
 impl FustaFS {
     fn new(settings: FustaSettings, filename: &str) -> FustaFS {
         eprintln!("Reading {}...", filename);
-        let fasta = from_file(filename).unwrap();
+        let fasta_file = std::fs::File::open(filename).unwrap();
+        let fragments = FastaReader::new(fasta_file, settings.keep_labels).collect::<Vec<_>>();
         eprintln!("Done.");
-        let mut keys = fasta.iter().map(|f| &f.id).collect::<Vec<_>>();
+        let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
         keys.sort();
         keys.dedup();
-        if keys.len() != fasta.len() {panic!("Duplicated keys")}
+        if keys.len() != fragments.len() {panic!("Duplicated keys")}
 
         let mut entries = vec![
             (1, FileType::Directory, ".".to_owned()),
             (1, FileType::Directory, "..".to_owned()),
         ];
-        for (i, fragment) in fasta.iter().enumerate() {
+        for (i, fragment) in fragments.iter().enumerate() {
             entries.push(((i + 2) as u64, FileType::RegularFile, fragment.id.to_owned()))
         }
 
         let f = std::fs::File::open(filename).unwrap();
 
         FustaFS {
-            fasta: fasta,
+            fasta: fragments,
             filename: filename.to_owned(),
             root_dir_attrs: FileAttr {
                 ino: 1,
@@ -211,6 +212,10 @@ fn main() {
              .long("non-empty")
              .help("Perform the mount even if the destination folder is not empty"))
 
+        .arg(Arg::with_name("labels")
+             .short("L")
+             .long("keep-labels")
+             .help("Keep the FASTA labels in the virtual files"))
         .get_matches();
 
     let fasta_file = value_t!(args, "FASTA", String).unwrap();
@@ -218,7 +223,7 @@ fn main() {
     let mut fuse_options: Vec<&OsStr> = Vec::new();
     let settings = FustaSettings {
         mmap: args.is_present("mmap"),
-        labels: false,
+        keep_labels: args.is_present("labels"),
     };
 
 

@@ -11,6 +11,7 @@ pub struct Fragment {
 }
 
 pub struct FastaReader<T> {
+    keep_labels: bool,
     buffer_lines: Lines<BufReader<T>>,
     current_header: Option<String>,
     current_start: usize,
@@ -18,8 +19,9 @@ pub struct FastaReader<T> {
 }
 
 impl<T: Read> FastaReader<T> {
-    fn new(file: T) -> FastaReader<T> {
+    pub fn new(file: T, keep_labels: bool) -> FastaReader<T> {
         FastaReader {
+            keep_labels: keep_labels,
             buffer_lines: BufReader::new(file).lines(),
             current_header: None,
             current_start: 0,
@@ -43,15 +45,35 @@ impl<T: Read> Iterator for FastaReader<T> {
                     let r = Fragment {
                         id: split[0].to_string(),
                         name: if split.len() > 1 { Some(split[1..].join(" ")) } else { None },
-                        pos: (self.current_start, self.current_offset - len),
-                        len: self.current_offset - len - self.current_start,
+
+                        pos: if self.keep_labels {
+                            (self.current_start, self.current_offset - len)
+                        } else {
+                            (self.current_start, self.current_offset)
+                        },
+                        len: if self.keep_labels {
+                            self.current_offset - len - self.current_start
+                        } else {
+                            self.current_offset - self.current_start - len
+                        },
                     };
                     self.current_header = Some(String::from(&line[1..]));
-                    self.current_start = self.current_offset;
+
+                    if self.keep_labels {
+                        self.current_start = self.current_offset - len;
+                    } else {
+                        self.current_start = self.current_offset;
+                    }
+
                     return Some(r);
                 } else {
                     self.current_header = Some(String::from(&line[1..]));
-                    self.current_start = self.current_offset;
+
+                    if self.keep_labels {
+                        self.current_start = self.current_offset - if self.current_offset > 0 { len } else { 0 };
+                    } else {
+                        self.current_start = self.current_offset ;
+                    }
                 }
                 continue;
             }
@@ -71,10 +93,4 @@ impl<T: Read> Iterator for FastaReader<T> {
 
         None
     }
-}
-
-
-pub fn from_file(filename: &str) -> Result<Vec<Fragment>, &str> {
-    let file = File::open(filename).or_else(|_| Err("Unable to open FASTA file")).unwrap();
-    Ok(FastaReader::new(file).collect::<Vec<_>>())
 }

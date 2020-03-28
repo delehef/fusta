@@ -10,3 +10,4 @@ fuse = { git = "https://github.com/zargony/fuse-rs" }
 log = "0.4"
 env_logger = "0.7"
 libc = "0.2"
+clap = "2.0"

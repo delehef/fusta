@@ -10,10 +10,17 @@ use memmap;
 use std::io::SeekFrom;
 use std::io::prelude::*;
 
+use clap::*;
+
 use fusta::fasta::*;
 
 const TTL: Duration = Duration::from_secs(100);
 
+
+struct FustaSettings {
+    mmap: bool,
+    labels: bool,
+}
 
 struct FustaFS {
     fasta: Vec<Fragment>,
@@ -21,14 +28,16 @@ struct FustaFS {
     root_dir_attrs: FileAttr,
     entries: Vec<(u64, fuse::FileType, String)>,
     filename: String,
-    mmap: memmap::Mmap,
+    mmap: Option<memmap::Mmap>,
+    settings: FustaSettings,
 }
 
 
 impl FustaFS {
-    fn new(filename: &str) -> FustaFS {
+    fn new(settings: FustaSettings, filename: &str) -> FustaFS {
+        eprintln!("Reading {}...", filename);
         let fasta = from_file(filename).unwrap();
-        eprintln!("{:?}", fasta);
+        eprintln!("Done.");
         let mut keys = fasta.iter().map(|f| &f.id).collect::<Vec<_>>();
         keys.sort();
         keys.dedup();
@@ -65,7 +74,8 @@ impl FustaFS {
             },
             metadata: fs::metadata(filename).unwrap(),
             entries: entries,
-            mmap: unsafe { memmap::MmapOptions::new().map(&f).unwrap() },
+            mmap: if settings.mmap { Some(unsafe { memmap::MmapOptions::new().map(&f).unwrap() })} else { None },
+            settings: settings,
         }
     }
 
@@ -130,16 +140,18 @@ impl Filesystem for FustaFS {
         eprintln!("READ {} {} | {}", ino, offset, size);
 
         if ino >= 2 && ino <= self.fasta.len() as u64 + 2 {
-            if false { // mmap
-                let id = (ino - 2) as usize;
+            let id = (ino - 2) as usize;
+
+            if let Some(mmap) = &self.mmap {
+                eprintln!("Using MMAP");
+
                 let end = if offset + size as i64 >= self.fasta[id].len as i64 {
                     self.fasta[id].len as i64
                 } else {
                     offset + size as i64
                 };
-                reply.data(&self.mmap[self.fasta[id].pos.0 + offset as usize .. self.fasta[id].pos.0 + end as usize]);
+                reply.data(&mmap[self.fasta[id].pos.0 + offset as usize .. self.fasta[id].pos.0 + end as usize]);
             } else { // fseek
-                let id = (ino - 2) as usize;
                 let mut buffer = vec![0u8; size as usize];
                 let mut f = std::fs::File::open(&self.filename).unwrap();
                 f.seek(SeekFrom::Start(self.fasta[id].pos.0 as u64 + offset as u64)).unwrap();
@@ -169,11 +181,38 @@ impl Filesystem for FustaFS {
 
 fn main() {
     env_logger::init();
-    let mountpoint = env::args_os().nth(1).unwrap();
-    let filename = &env::args().nth(2).unwrap();
-    eprintln!("Reading {}...", filename);
-    let fs = FustaFS::new(filename);
-    eprintln!("Done.");
 
+    let args = App::new("fusta")
+        .setting(AppSettings::ColoredHelp)
+        .setting(AppSettings::ColorAuto)
+        .setting(AppSettings::VersionlessSubcommands)
+        .setting(AppSettings::UnifiedHelpMessage)
+        .version(crate_version!())
+        .author(crate_authors!())
+        .arg(Arg::with_name("FASTA")
+             .help("A (multi)FASTA file containing the sequences to mount")
+             .required(true)
+             .index(1))
+        .arg(Arg::with_name("DEST")
+             .help("The mountpoint")
+             .required(true)
+             .index(2))
+        .arg(Arg::with_name("mmap")
+             .short("M")
+             .long("mmap")
+             .help("Use mmap instead of seek to browse FASTA fragments. Faster, but memory hungry"))
+        .get_matches();
+
+    let fasta_file = value_t!(args, "FASTA", String).unwrap();
+    let mountpoint = value_t!(args, "DEST", String).unwrap();
+
+    let settings = FustaSettings {
+        mmap: args.is_present("mmap"),
+        labels: false,
+    };
+
+
+    let fs = FustaFS::new(settings, &fasta_file);
+    // TODO check that mountpoint exists
     fuse::mount(fs, &mountpoint, &[]).unwrap();
 }

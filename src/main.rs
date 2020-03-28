@@ -220,7 +220,7 @@ fn main() {
 
     let fasta_file = value_t!(args, "FASTA", String).unwrap();
     let mountpoint = value_t!(args, "DEST", String).unwrap();
-    let mut fuse_options: Vec<&OsStr> = Vec::new();
+    let mut fuse_options: Vec<&OsStr> = vec![&OsStr::new("-o"), &OsStr::new("auto_unmount")];
     let settings = FustaSettings {
         mmap: args.is_present("mmap"),
         keep_labels: args.is_present("labels"),
@@ -231,7 +231,6 @@ fn main() {
     if !std::path::Path::new(&mountpoint).is_dir() {
         panic!("{} is not a directory", mountpoint)
     }
-
     if args.is_present("nonempty") {
         fuse_options.push(&OsStr::new("-o"));
         fuse_options.push(&OsStr::new("nonempty"));
@@ -241,6 +240,12 @@ fn main() {
     }
 
     eprintln!("Options => {:?}", fuse_options);
+
+
+    ctrlc::set_handler(move || {
+        eprintln!("Ctrl-C received, exiting.");
+        std::process::exit(0);
+    }).expect("Error setting Ctrl-C handler");
 
     fuse::mount(fs, &mountpoint, &fuse_options).unwrap();
 }

@@ -1,6 +1,5 @@
 use std::io::{BufReader, Lines};
 use std::io::prelude::*;
-use std::fs::File;
 
 #[derive(Debug)]
 pub struct Fragment {

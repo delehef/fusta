@@ -1,5 +1,5 @@
 use std::env;
-use fuse::{FileType, FileAttr, Filesystem, Request, ReplyData, ReplyEntry, ReplyAttr, ReplyDirectory};
+use fuse::*;
 
 use std::ffi::OsStr;
 use std::time::Duration;
@@ -46,7 +46,7 @@ impl BufferedFragment {
         match &self.data {
             Backing::File(filename, start, _) => {
                 let mut buffer = vec![0u8; self.len() as usize];
-                let mut f = std::fs::File::open(&filename).unwrap();
+                let mut f = fs::File::open(&filename).unwrap();
                 f.seek(SeekFrom::Start(*start as u64)).unwrap();
                 let _ = f.read(&mut buffer).unwrap();
                 buffer.into_boxed_slice()
@@ -64,7 +64,7 @@ impl BufferedFragment {
         match &self.data {
             Backing::File(filename, start, _) => {
                 let mut buffer = vec![0u8; size as usize];
-                let mut f = std::fs::File::open(&filename).unwrap();
+                let mut f = fs::File::open(&filename).unwrap();
                 f.seek(SeekFrom::Start(*start as u64 + offset as u64)).unwrap();
                 let _ = f.read(&mut buffer).unwrap();
                 buffer.into_boxed_slice()
@@ -100,37 +100,9 @@ struct FustaFS {
 
 impl FustaFS {
     fn new(settings: FustaSettings, filename: &str) -> FustaFS {
-        info!("Reading {}...", filename);
-        let fasta_file = std::fs::File::open(filename).unwrap();
-        let fragments = FastaReader::new(fasta_file, settings.keep_labels).collect::<Vec<_>>();
-        info!("Done.");
-        let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
-        keys.sort();
-        keys.dedup();
-        if keys.len() != fragments.len() {panic!("Duplicated keys")}
-
-        let mut entries = vec![
-            (INO_DIR, FileType::Directory, ".".to_owned()),
-            (INO_DIR, FileType::Directory, "..".to_owned()),
-        ];
-        for (i, fragment) in fragments.iter().enumerate() {
-            entries.push(((i + 2) as u64, FileType::RegularFile, fragment.id.to_owned()))
-        }
-
-        let file = std::fs::File::open(filename).unwrap();
-
-        FustaFS {
-            fragments: fragments.iter().map(|f| BufferedFragment {
-                id: f.id.clone(),
-                name: f.name.clone(),
-                data: if settings.mmap {
-                    Backing::MMap(unsafe { memmap::MmapOptions::new().offset(f.pos.0 as u64).len(f.len).map(&file).unwrap() })
-                } else {
-                    Backing::File(filename.to_owned(), f.pos.0, f.pos.1)
-                }
-
-            }).collect::<Vec<_>>(),
-            filename: filename.to_owned(),
+        let mut r = FustaFS {
+            fragments: Vec::new(),
+            filename: String::new(),
             root_dir_attrs: FileAttr {
                 ino: INO_DIR,
                 size: 0,
@@ -148,9 +120,73 @@ impl FustaFS {
                 flags: 0,
             },
             metadata: fs::metadata(filename).unwrap(),
-            entries: entries,
+            entries: vec![
+                (INO_DIR, FileType::Directory, ".".to_owned()),
+                (INO_DIR, FileType::Directory, "..".to_owned()),
+            ],
             settings: settings,
+        };
+
+        r.read_fasta(filename);
+        r
+    }
+
+    fn read_fasta(&mut self, filename: &str) {
+        info!("Reading {}...", filename);
+        let fasta_file = fs::File::open(filename).unwrap();
+        let fragments = FastaReader::new(fasta_file, self.settings.keep_labels).collect::<Vec<_>>();
+        info!("Done.");
+        let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
+        keys.sort();
+        keys.dedup();
+        if keys.len() != fragments.len() {panic!("Duplicated keys")}
+
+        let file = fs::File::open(filename).unwrap();
+        let mut entries = vec![
+            (INO_DIR, FileType::Directory, ".".to_owned()),
+            (INO_DIR, FileType::Directory, "..".to_owned()),
+        ];
+        for (i, fragment) in fragments.iter().enumerate() {
+            entries.push(((i + 2) as u64, FileType::RegularFile, fragment.id.to_owned()))
         }
+
+        self.filename = filename.to_owned();
+        self.fragments = fragments.iter().map(|f| BufferedFragment {
+            id: f.id.clone(),
+            name: f.name.clone(),
+            data: if self.settings.mmap {
+                Backing::MMap(unsafe { memmap::MmapOptions::new().offset(f.pos.0 as u64).len(f.len).map(&file).unwrap() })
+            } else {
+                Backing::File(filename.to_owned(), f.pos.0, f.pos.1)
+            }
+        }).collect::<Vec<_>>();
+        self.entries = entries;
+    }
+
+    fn concretize(&self) {
+        if !self.fragments.iter().any(|f| matches!(f.data, Backing::Buffer(_))) {
+            debug!("Nothing to concretize; leaving");
+            return;
+        }
+
+        let tmp_filename = format!("{}#fusta#", &self.filename);
+        { // Scope to ensure the content is correctly written
+            trace!("Writing fragments");
+            let mut tmp_file = fs::File::create(&tmp_filename).unwrap();
+            for fragment in self.fragments.iter() {
+                trace!("Writing {}", fragment.id);
+                if !self.settings.keep_labels {
+                    tmp_file.write_all(format!(
+                        ">{} {}",
+                        fragment.id, fragment.name.as_ref().unwrap_or(&String::new())
+                    ).as_bytes()).unwrap();
+                }
+
+                tmp_file.write_all(&fragment.data()).unwrap();
+            }
+        }
+        trace!("Renaming {} to {}", tmp_filename, &self.filename);
+        fs::rename(tmp_filename, &self.filename).unwrap();
     }
 
     fn fragment_to_fileattrs(&self, ino: u64, fragment: &BufferedFragment) -> FileAttr {

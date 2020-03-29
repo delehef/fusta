@@ -45,11 +45,7 @@ impl<T: Read> Iterator for FastaReader<T> {
                         id: split[0].to_string(),
                         name: if split.len() > 1 { Some(split[1..].join(" ")) } else { None },
 
-                        pos: if self.keep_labels {
-                            (self.current_start, self.current_offset - len)
-                        } else {
-                            (self.current_start, self.current_offset)
-                        },
+                        pos: (self.current_start, self.current_offset - len),
                         len: if self.keep_labels {
                             self.current_offset - len - self.current_start
                         } else {

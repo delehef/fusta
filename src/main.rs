@@ -19,7 +19,69 @@ use log::*;
 use simplelog::*;
 
 const TTL: Duration = Duration::from_secs(100);
+const INO_DIR: u64 = 1;
 
+#[derive(Debug)]
+enum Backing {
+    File(String, usize, usize),
+    Buffer(Vec<u8>),
+    MMap(memmap::Mmap)
+}
+
+struct BufferedFragment {
+    id: String,
+    name: Option<String>,
+    data: Backing,
+}
+impl BufferedFragment {
+    fn len(&self) -> usize {
+        match &self.data {
+            Backing::File(_, start, end) => end - start,
+            Backing::Buffer(ref b)       => b.len(),
+            Backing::MMap(ref mmap)          => mmap.len()
+        }
+    }
+
+    fn data(&self) -> Box<[u8]> {
+        match &self.data {
+            Backing::File(filename, start, _) => {
+                let mut buffer = vec![0u8; self.len() as usize];
+                let mut f = std::fs::File::open(&filename).unwrap();
+                f.seek(SeekFrom::Start(*start as u64)).unwrap();
+                let _ = f.read(&mut buffer).unwrap();
+                buffer.into_boxed_slice()
+            },
+            Backing::Buffer(ref b) => {
+                b[..].into()
+            },
+            Backing::MMap(ref mmap) => {
+                mmap[..].into()
+            }
+        }
+    }
+
+    fn chunk(&self, offset: i64, size: u32) -> Box<[u8]> {
+        match &self.data {
+            Backing::File(filename, start, _) => {
+                let mut buffer = vec![0u8; size as usize];
+                let mut f = std::fs::File::open(&filename).unwrap();
+                f.seek(SeekFrom::Start(*start as u64 + offset as u64)).unwrap();
+                let _ = f.read(&mut buffer).unwrap();
+                buffer.into_boxed_slice()
+            },
+            Backing::Buffer(ref b) => {
+                let start = offset as usize;
+                let end = std::cmp::min(b.len() as i64, offset + size as i64) as usize;
+                b[start .. end].into()
+            },
+            Backing::MMap(ref mmap) => {
+                let start = offset as usize;
+                let end = std::cmp::min(mmap.len() as i64, offset + size as i64) as usize;
+                mmap[start .. end].into()
+            }
+        }
+    }
+}
 
 struct FustaSettings {
     mmap: bool,
@@ -27,12 +89,11 @@ struct FustaSettings {
 }
 
 struct FustaFS {
-    fasta: Vec<Fragment>,
+    fragments: Vec<BufferedFragment>,
     metadata: fs::Metadata,
     root_dir_attrs: FileAttr,
     entries: Vec<(u64, fuse::FileType, String)>,
     filename: String,
-    mmap: Option<memmap::Mmap>,
     settings: FustaSettings,
 }
 
@@ -49,20 +110,29 @@ impl FustaFS {
         if keys.len() != fragments.len() {panic!("Duplicated keys")}
 
         let mut entries = vec![
-            (1, FileType::Directory, ".".to_owned()),
-            (1, FileType::Directory, "..".to_owned()),
+            (INO_DIR, FileType::Directory, ".".to_owned()),
+            (INO_DIR, FileType::Directory, "..".to_owned()),
         ];
         for (i, fragment) in fragments.iter().enumerate() {
             entries.push(((i + 2) as u64, FileType::RegularFile, fragment.id.to_owned()))
         }
 
-        let f = std::fs::File::open(filename).unwrap();
+        let file = std::fs::File::open(filename).unwrap();
 
         FustaFS {
-            fasta: fragments,
+            fragments: fragments.iter().map(|f| BufferedFragment {
+                id: f.id.clone(),
+                name: f.name.clone(),
+                data: if settings.mmap {
+                    Backing::MMap(unsafe { memmap::MmapOptions::new().offset(f.pos.0 as u64).len(f.len).map(&file).unwrap() })
+                } else {
+                    Backing::File(filename.to_owned(), f.pos.0, f.pos.1)
+                }
+
+            }).collect::<Vec<_>>(),
             filename: filename.to_owned(),
             root_dir_attrs: FileAttr {
-                ino: 1,
+                ino: INO_DIR,
                 size: 0,
                 blocks: 0,
                 atime: std::time::SystemTime::now(),
@@ -79,15 +149,14 @@ impl FustaFS {
             },
             metadata: fs::metadata(filename).unwrap(),
             entries: entries,
-            mmap: if settings.mmap { Some(unsafe { memmap::MmapOptions::new().map(&f).unwrap() })} else { None },
             settings: settings,
         }
     }
 
-    fn fragment_to_fileattrs(&self, ino: u64, fragment: &Fragment) -> FileAttr {
+    fn fragment_to_fileattrs(&self, ino: u64, fragment: &BufferedFragment) -> FileAttr {
         FileAttr {
             ino: ino,
-            size: (fragment.pos.1 - fragment.pos.0) as u64,
+            size: fragment.len() as u64,
             blocks: 1,
             atime: self.metadata.accessed().unwrap(),
             mtime: self.metadata.modified().unwrap(),
@@ -109,9 +178,9 @@ impl Filesystem for FustaFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         debug!("LOOKUP {}/{:?}", parent, name);
 
-        if parent == 1  {
-            if let Some(i) = (0 .. self.fasta.len()).find(|&i| self.fasta[i].id == name.to_str().unwrap()) {
-                let fragment = &self.fasta[i];
+        if parent == INO_DIR  {
+            if let Some(i) = (0 .. self.fragments.len()).find(|&i| self.fragments[i].id == name.to_str().unwrap()) {
+                let fragment = &self.fragments[i];
                 let ino = i as u64 + 2;
                 reply.entry(&TTL, &self.fragment_to_fileattrs(ino, &fragment), 0);
             } else {
@@ -128,14 +197,14 @@ impl Filesystem for FustaFS {
         debug!("GETATTR {}", ino);
 
         match ino {
-            1 => reply.attr(&TTL, &self.root_dir_attrs),
-            ino if ino >= 2 && ino < self.fasta.len() as u64 + 2 => {
+            INO_DIR => reply.attr(&TTL, &self.root_dir_attrs),
+            ino if ino >= 2 && ino < self.fragments.len() as u64 + 2 => {
                 let fasta_id = (ino - 2) as usize;
-                let fragment = &self.fasta[fasta_id];
+                let fragment = &self.fragments[fasta_id];
                 reply.attr(&TTL, &self.fragment_to_fileattrs(ino, &fragment))
             },
             _ => {
-                debug!("\tino {} does not exist ({:?})", ino, self.fasta.len());
+                debug!("\tino {} does not exist ({:?})", ino, self.fragments.len());
                 reply.error(ENOENT)
             },
         }
@@ -144,25 +213,9 @@ impl Filesystem for FustaFS {
     fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, size: u32, reply: ReplyData) {
         debug!("READ {} {} | {}", ino, offset, size);
 
-        if ino >= 2 && ino <= self.fasta.len() as u64 + 2 {
+        if ino >= 2 && ino <= self.fragments.len() as u64 + 2 {
             let id = (ino - 2) as usize;
-
-            let mut buffer;
-            let out = if let Some(mmap) = &self.mmap {
-                let end = if offset + size as i64 >= self.fasta[id].len as i64 {
-                    self.fasta[id].len as i64
-                } else {
-                    offset + size as i64
-                };
-                &mmap[self.fasta[id].pos.0 + offset as usize .. self.fasta[id].pos.0 + end as usize]
-            } else { // fseek
-                buffer = vec![0u8; size as usize];
-                let mut f = std::fs::File::open(&self.filename).unwrap();
-                f.seek(SeekFrom::Start(self.fasta[id].pos.0 as u64 + offset as u64)).unwrap();
-                let _ = f.read(&mut buffer).unwrap();
-                &buffer
-            };
-            reply.data(&out)
+            reply.data(&self.fragments[id].chunk(offset, size))
         } else {
             debug!("\t{} is not a file", ino);
             reply.error(ENOENT);
@@ -172,7 +225,7 @@ impl Filesystem for FustaFS {
     fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
         debug!("READDIR {}", ino);
 
-        if ino != 1 {
+        if ino != INO_DIR {
             reply.error(ENOENT);
             return;
         }
@@ -261,7 +314,7 @@ fn main() {
     };
 
     info!("Using MMAP:      {}", settings.mmap);
-    info!("Keeping labels:  {}", settings.mmap);
+    info!("Keeping labels:  {}", settings.keep_labels);
 
     let fs = FustaFS::new(settings, &fasta_file);
     if !std::path::Path::new(&mountpoint).is_dir() {

@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::fs;
 use libc::ENOENT;
 use daemonize::*;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use memmap;
 use std::io::SeekFrom;
@@ -29,6 +29,7 @@ enum Backing {
     MMap(memmap::Mmap)
 }
 
+#[derive(Debug)]
 struct BufferedFragment {
     id: String,
     name: Option<String>,
@@ -90,10 +91,9 @@ struct FustaSettings {
 }
 
 struct FustaFS {
-    fragments: HashMap<u64, BufferedFragment>,
+    fragments: BTreeMap<u64, BufferedFragment>,
     metadata: fs::Metadata,
     root_dir_attrs: FileAttr,
-    entries: Vec<(u64, fuse::FileType, String)>,
     filename: String,
     settings: FustaSettings,
 }
@@ -102,7 +102,7 @@ struct FustaFS {
 impl FustaFS {
     fn new(settings: FustaSettings, filename: &str) -> FustaFS {
         let mut r = FustaFS {
-            fragments: HashMap::new(),
+            fragments: BTreeMap::new(),
             filename: String::new(),
             root_dir_attrs: FileAttr {
                 ino: INO_DIR,
@@ -121,14 +121,20 @@ impl FustaFS {
                 flags: 0,
             },
             metadata: fs::metadata(filename).unwrap(),
-            entries: vec![
-                (INO_DIR, FileType::Directory, ".".to_owned()),
-                (INO_DIR, FileType::Directory, "..".to_owned()),
-            ],
             settings: settings,
         };
 
         r.read_fasta(filename);
+        r
+    }
+
+    fn new_ino(&self) -> u64 {
+        let r =  if self.fragments.keys().next().is_none() {
+            3
+        } else {
+            self.fragments.keys().max_by(|k1, k2| k1.cmp(k2)).unwrap() + 1
+        };
+        debug!("New ino: {}", r);
         r
     }
 
@@ -143,25 +149,22 @@ impl FustaFS {
         if keys.len() != fragments.len() {panic!("Duplicated keys")}
 
         let file = fs::File::open(filename).unwrap();
-        let mut entries = vec![
-            (INO_DIR, FileType::Directory, ".".to_owned()),
-            (INO_DIR, FileType::Directory, "..".to_owned()),
-        ];
-        for (i, fragment) in fragments.iter().enumerate() {
-            entries.push(((i + 2) as u64, FileType::RegularFile, fragment.id.to_owned()))
-        }
-
         self.filename = filename.to_owned();
-        self.fragments = fragments.iter().enumerate().map(|(i, f)| (i as u64, BufferedFragment {
-            id: f.id.clone(),
-            name: f.name.clone(),
-            data: if self.settings.mmap {
-                Backing::MMap(unsafe { memmap::MmapOptions::new().offset(f.pos.0 as u64).len(f.len).map(&file).unwrap() })
-            } else {
-                Backing::File(filename.to_owned(), f.pos.0, f.pos.1)
-            }
-        })).collect::<HashMap<_, _>>();
-        self.entries = entries;
+
+        for f in fragments.iter() {
+            self.fragments.insert(
+                self.new_ino(),
+                BufferedFragment {
+                    id: f.id.clone(),
+                    name: f.name.clone(),
+                    data: if self.settings.mmap {
+                        Backing::MMap(unsafe { memmap::MmapOptions::new().offset(f.pos.0 as u64).len(f.len).map(&file).unwrap() })
+                    } else {
+                        Backing::File(filename.to_owned(), f.pos.0, f.pos.1)
+                    }
+                }
+            );
+        }
     }
 
     fn concretize(&mut self) {
@@ -188,6 +191,9 @@ impl FustaFS {
         }
         trace!("Renaming {} to {}", tmp_filename, &self.filename);
         fs::rename(tmp_filename, &self.filename).unwrap();
+        trace!("Rebuilding index");
+        let filename = self.filename.clone();
+        self.read_fasta(&filename);
     }
 
     fn fragment_to_fileattrs(&self, ino: u64, fragment: &BufferedFragment) -> FileAttr {
@@ -212,6 +218,10 @@ impl FustaFS {
     // fn fragment_from_ino(&self, ino: u64) -> Option<BufferedFragment> {
     //     if ino >= 2 && ino < self.fragments.len()
     // }
+
+    fn fragment_from_name(&self, name: &OsStr) -> Option<(&u64, &BufferedFragment)> {
+        self.fragments.iter().find(|(_, f)| f.id == name.to_str().unwrap())
+    }
 }
 
 
@@ -224,9 +234,8 @@ impl Filesystem for FustaFS {
             return;
         }
 
-        if let Some((&i, fragment)) = self.fragments.iter().find(|(_, f)| f.id == name.to_str().unwrap()) {
-            let ino = i as u64 + 2;
-            reply.entry(&TTL, &self.fragment_to_fileattrs(ino, &fragment), 0);
+        if let Some((&i, fragment)) = self.fragment_from_name(name) {
+            reply.entry(&TTL, &self.fragment_to_fileattrs(i, fragment), 0);
         } else {
             debug!("\t{:?} does not exist", name);
             reply.error(ENOENT);
@@ -238,9 +247,8 @@ impl Filesystem for FustaFS {
 
         match ino {
             INO_DIR => reply.attr(&TTL, &self.root_dir_attrs),
-            ino if ino >= 2 && ino < self.fragments.len() as u64 + 2 => {
-                let fasta_id = ino - 2;
-                let fragment = &self.fragments[&fasta_id];
+            ino if self.fragments.contains_key(&ino) => {
+                let fragment = &self.fragments[&ino];
                 reply.attr(&TTL, &self.fragment_to_fileattrs(ino, &fragment))
             },
             _ => {
@@ -253,9 +261,8 @@ impl Filesystem for FustaFS {
     fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, size: u32, reply: ReplyData) {
         debug!("READ {} {} | {}", ino, offset, size);
 
-        if ino >= 2 && ino <= self.fragments.len() as u64 + 2 {
-            let id = ino - 2;
-            reply.data(&self.fragments[&id].chunk(offset, size))
+        if self.fragments.contains_key(&ino) {
+            reply.data(&self.fragments[&ino].chunk(offset, size))
         } else {
             debug!("\t{} is not a file", ino);
             reply.error(ENOENT);
@@ -270,8 +277,22 @@ impl Filesystem for FustaFS {
             return;
         }
 
-        for (i, entry) in self.entries.iter().enumerate().skip(offset as usize) {
-            reply.add(entry.0, (i+1) as i64, entry.1, entry.2.to_owned());
+        dbg!(&self.fragments.values());
+        let mut entries = maplit::btreemap! {
+            INO_DIR     => (FileType::Directory, ".".to_owned()),
+            INO_DIR + 1 => (FileType::Directory, "..".to_owned()),
+        };
+        for (&i, fragment) in self.fragments.iter() {
+            entries.insert(i, (FileType::RegularFile, fragment.id.to_owned()));
+        }
+        dbg!(&entries);
+
+        for (o, (i, entry)) in entries.iter().enumerate().skip(offset as usize) {
+            reply.add(*i, o as i64 + 1, entry.0, entry.1.to_owned());
+        }
+        reply.ok();
+    }
+
         }
         reply.ok();
     }

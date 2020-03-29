@@ -151,6 +151,7 @@ impl FustaFS {
         let file = fs::File::open(filename).unwrap();
         self.filename = filename.to_owned();
 
+        self.fragments.clear();
         for f in fragments.iter() {
             self.fragments.insert(
                 self.new_ino(),
@@ -167,8 +168,10 @@ impl FustaFS {
         }
     }
 
-    fn concretize(&mut self) {
-        if !self.fragments.values().any(|f| matches!(f.data, Backing::Buffer(_))) {
+    fn concretize(&mut self, force: bool) {
+        // if force is set to true, we still force the rewrite so that "phantom" (deleted) fragments
+        // are effectively removed
+        if !force && !self.fragments.values().any(|f| matches!(f.data, Backing::Buffer(_))) {
             debug!("Nothing to concretize; leaving");
             return;
         }
@@ -277,7 +280,6 @@ impl Filesystem for FustaFS {
             return;
         }
 
-        dbg!(&self.fragments.values());
         let mut entries = maplit::btreemap! {
             INO_DIR     => (FileType::Directory, ".".to_owned()),
             INO_DIR + 1 => (FileType::Directory, "..".to_owned()),
@@ -285,16 +287,36 @@ impl Filesystem for FustaFS {
         for (&i, fragment) in self.fragments.iter() {
             entries.insert(i, (FileType::RegularFile, fragment.id.to_owned()));
         }
-        dbg!(&entries);
 
-        for (o, (i, entry)) in entries.iter().enumerate().skip(offset as usize) {
-            reply.add(*i, o as i64 + 1, entry.0, entry.1.to_owned());
+        for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
+            reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
         }
         reply.ok();
     }
 
+    fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        debug!("UNLINK {}/{:?}", parent, name);
+        if parent != INO_DIR {
+            reply.error(ENOENT);
+            return;
         }
-        reply.ok();
+
+        if let Some((&ino, _)) = self.fragment_from_name(name) {
+            match self.fragments.remove(&ino) {
+                Some(_) => {
+                    self.concretize(true);
+                    reply.ok();
+                },
+                None    => {
+                    debug!("Unknown ino: `{:?}`", name);
+                    reply.error(ENOENT);
+                }
+            }
+        } else {
+            debug!("Unknown file: `{:?}`", name);
+            reply.error(ENOENT);
+        }
+
     }
 }
 

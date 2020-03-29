@@ -13,3 +13,4 @@ libc = "0.2"
 clap = "2.0"
 ctrlc = { version = "3.0", features = ["termination"] }
 daemonize = "0.4"
+maplit = "1.0"

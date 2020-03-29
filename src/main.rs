@@ -6,6 +6,7 @@ use std::time::Duration;
 use std::fs;
 use libc::ENOENT;
 use daemonize::*;
+use std::collections::HashMap;
 
 use memmap;
 use std::io::SeekFrom;
@@ -89,7 +90,7 @@ struct FustaSettings {
 }
 
 struct FustaFS {
-    fragments: Vec<BufferedFragment>,
+    fragments: HashMap<u64, BufferedFragment>,
     metadata: fs::Metadata,
     root_dir_attrs: FileAttr,
     entries: Vec<(u64, fuse::FileType, String)>,
@@ -101,7 +102,7 @@ struct FustaFS {
 impl FustaFS {
     fn new(settings: FustaSettings, filename: &str) -> FustaFS {
         let mut r = FustaFS {
-            fragments: Vec::new(),
+            fragments: HashMap::new(),
             filename: String::new(),
             root_dir_attrs: FileAttr {
                 ino: INO_DIR,
@@ -151,7 +152,7 @@ impl FustaFS {
         }
 
         self.filename = filename.to_owned();
-        self.fragments = fragments.iter().map(|f| BufferedFragment {
+        self.fragments = fragments.iter().enumerate().map(|(i, f)| (i as u64, BufferedFragment {
             id: f.id.clone(),
             name: f.name.clone(),
             data: if self.settings.mmap {
@@ -159,12 +160,12 @@ impl FustaFS {
             } else {
                 Backing::File(filename.to_owned(), f.pos.0, f.pos.1)
             }
-        }).collect::<Vec<_>>();
+        })).collect::<HashMap<_, _>>();
         self.entries = entries;
     }
 
-    fn concretize(&self) {
-        if !self.fragments.iter().any(|f| matches!(f.data, Backing::Buffer(_))) {
+    fn concretize(&mut self) {
+        if !self.fragments.values().any(|f| matches!(f.data, Backing::Buffer(_))) {
             debug!("Nothing to concretize; leaving");
             return;
         }
@@ -173,7 +174,7 @@ impl FustaFS {
         { // Scope to ensure the content is correctly written
             trace!("Writing fragments");
             let mut tmp_file = fs::File::create(&tmp_filename).unwrap();
-            for fragment in self.fragments.iter() {
+            for fragment in self.fragments.values() {
                 trace!("Writing {}", fragment.id);
                 if !self.settings.keep_labels {
                     tmp_file.write_all(format!(
@@ -207,24 +208,27 @@ impl FustaFS {
             flags: 0,
         }
     }
+
+    // fn fragment_from_ino(&self, ino: u64) -> Option<BufferedFragment> {
+    //     if ino >= 2 && ino < self.fragments.len()
+    // }
 }
 
 
 impl Filesystem for FustaFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         debug!("LOOKUP {}/{:?}", parent, name);
-
-        if parent == INO_DIR  {
-            if let Some(i) = (0 .. self.fragments.len()).find(|&i| self.fragments[i].id == name.to_str().unwrap()) {
-                let fragment = &self.fragments[i];
-                let ino = i as u64 + 2;
-                reply.entry(&TTL, &self.fragment_to_fileattrs(ino, &fragment), 0);
-            } else {
-                debug!("\t{:?} does not exist", name);
-                reply.error(ENOENT);
-            }
-        } else {
+        if parent != INO_DIR  {
             debug!("\tParent {} does not exist", parent);
+            reply.error(ENOENT);
+            return;
+        }
+
+        if let Some((&i, fragment)) = self.fragments.iter().find(|(_, f)| f.id == name.to_str().unwrap()) {
+            let ino = i as u64 + 2;
+            reply.entry(&TTL, &self.fragment_to_fileattrs(ino, &fragment), 0);
+        } else {
+            debug!("\t{:?} does not exist", name);
             reply.error(ENOENT);
         }
     }
@@ -235,8 +239,8 @@ impl Filesystem for FustaFS {
         match ino {
             INO_DIR => reply.attr(&TTL, &self.root_dir_attrs),
             ino if ino >= 2 && ino < self.fragments.len() as u64 + 2 => {
-                let fasta_id = (ino - 2) as usize;
-                let fragment = &self.fragments[fasta_id];
+                let fasta_id = ino - 2;
+                let fragment = &self.fragments[&fasta_id];
                 reply.attr(&TTL, &self.fragment_to_fileattrs(ino, &fragment))
             },
             _ => {
@@ -250,8 +254,8 @@ impl Filesystem for FustaFS {
         debug!("READ {} {} | {}", ino, offset, size);
 
         if ino >= 2 && ino <= self.fragments.len() as u64 + 2 {
-            let id = (ino - 2) as usize;
-            reply.data(&self.fragments[id].chunk(offset, size))
+            let id = ino - 2;
+            reply.data(&self.fragments[&id].chunk(offset, size))
         } else {
             debug!("\t{} is not a file", ino);
             reply.error(ENOENT);

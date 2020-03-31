@@ -335,16 +335,17 @@ impl FustaFS {
             .collect::<Vec<_>>();
     }
 
+    /// if force is set to true, we still force the rewrite so that "phantom" (deleted) fragments
+    /// are effectively removed.
+    /// Otherwise, the memory-backed fragments are written down on disk.
     fn concretize(&mut self, force: bool) {
-        // if force is set to true, we still force the rewrite so that "phantom" (deleted) fragments
-        // are effectively removed
         if !force && !self.fragments.iter().any(|f| matches!(f.data, Backing::Buffer(_))) {
             debug!("Nothing to concretize; leaving");
             return;
         }
 
         let tmp_filename = format!("{}#fusta#", &self.filename);
-        { // Scope to ensure the content is correctly written
+        { // Scope to ensure the tmp file is correctly closed
             trace!("Writing fragments");
             let mut tmp_file = fs::File::create(&tmp_filename).unwrap();
             for fragment in self.fragments.iter() {
@@ -489,7 +490,8 @@ impl Filesystem for FustaFS {
             .and_then(|f| f.file_from_filename(name))
             .is_some() {
                 self.fragments.retain(|f| f.fasta_file.name != name && f.seq_file.name != name);
-                self.concretize(true)
+                self.concretize(true);
+                reply.ok();
             } else {
                 warn!("UNLINK: unknown file: `{:?}`", name);
                 reply.error(ENOENT);
@@ -634,7 +636,7 @@ impl Filesystem for FustaFS {
 
     fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
         info!("FSYNC");
-        self.concretize(true);
+        self.concretize(false);
         reply.ok();
     }
 
@@ -646,7 +648,7 @@ impl Filesystem for FustaFS {
 
     fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
         info!("FLUSH");
-        self.concretize(true);
+        self.concretize(false);
         reply.ok();
     }
 

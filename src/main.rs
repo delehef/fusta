@@ -1,4 +1,3 @@
-use std::env;
 use fuse::*;
 
 use std::ffi::OsStr;
@@ -6,7 +5,6 @@ use std::time::{SystemTime, Duration};
 use std::fs;
 use libc::*;
 use daemonize::*;
-use std::collections::BTreeMap;
 
 use memmap;
 use std::io::SeekFrom;
@@ -22,7 +20,30 @@ use simplelog::*;
 const TTL: Duration = Duration::from_secs(1);
 const INO_DIR: u64 = 1;
 const FASTA_EXT: &str = "fa";
+const SEQ_EXT: &str = "seq";
 const EXTENSIONS: &[&str] = &["FA", "FASTA"];
+
+#[derive(Debug, PartialEq, Clone)]
+enum FileClass {
+    Fasta(Vec<u8>),
+    Seq
+}
+impl FileClass {
+    fn readonly(&self) -> bool {
+        match self {
+            Seq => { false }
+            _   => { true }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct VirtualFile {
+    name: String,
+    ino: u64,
+    attrs: FileAttr,
+    class: FileClass,
+}
 
 #[derive(Debug)]
 enum Backing {
@@ -30,26 +51,122 @@ enum Backing {
     Buffer(Vec<u8>),
     MMap(memmap::Mmap)
 }
+impl Backing {
+    fn len(&self) -> usize {
+        match self {
+            Backing::File(_, start, end) => end - start,
+            Backing::Buffer(ref b) => b.len(),
+            Backing::MMap(ref mmap) => mmap.len(),
+        }
+    }
+}
+
 
 #[derive(Debug)]
-struct BufferedFragment {
+struct Fragment {
     id: String,
     name: Option<String>,
     data: Backing,
+    fasta_file: VirtualFile,
+    seq_file: VirtualFile,
 }
-impl BufferedFragment {
-    fn len(&self) -> usize {
+impl Fragment {
+    fn make_label(id: &str, name: &Option<String>) -> String {
+        format!(">{}{}\n", id, name.as_ref().map(|n| format!(" {}", n)).unwrap_or_default())
+    }
+
+    fn make_virtual_file(
+        ino: u64, name: &str, permissions: u16, size: usize, class: FileClass,
+        accessed: SystemTime, modified: SystemTime
+    ) -> VirtualFile {
+        VirtualFile {
+            name: name.to_string(),
+            ino: ino,
+            class: class,
+            attrs: FileAttr {
+                ino: ino, size: size as u64, blocks: 1,
+                atime:  accessed,
+                mtime:  modified,
+                ctime:  modified,
+                crtime: modified,
+                kind: FileType::RegularFile, perm: permissions,
+                nlink: 0,
+                uid: unsafe { libc::geteuid() }, gid: unsafe { libc::getgid() },
+                rdev: 0, flags: 0,
+            }
+        }
+    }
+
+    fn new(
+        id: &str, name: &Option<String>, data: Backing,
+        fasta_ino: u64, seq_ino: u64,
+        accessed: SystemTime, modified: SystemTime
+    ) -> Fragment {
+        let label = Fragment::make_label(id, name);
+        let data_size = data.len();
+        Fragment {
+            id: id.to_string(),
+            name: name.clone(),
+            data: data,
+            fasta_file: Fragment::make_virtual_file(
+                fasta_ino,
+                &format!("{}.{}", id, FASTA_EXT),
+                0o664, label.as_bytes().len() + data_size, FileClass::Fasta(Vec::new()),
+                accessed, modified),
+            seq_file: Fragment::make_virtual_file(
+                seq_ino,
+                &format!("{}.{}", id, SEQ_EXT),
+                0o664, data_size, FileClass::Seq,
+                accessed, modified),
+        }
+    }
+
+    fn with_empty_buffer(
+        id: &str, fasta_ino: u64, seq_ino: u64,
+        accessed: SystemTime, modified: SystemTime
+    ) -> Fragment {
+        let label = format!(">{}\n", id);
+        Fragment {
+            id: id.to_string(),
+            name: None,
+            data: Backing::Buffer(Vec::new()),
+            fasta_file: Fragment::make_virtual_file(
+                fasta_ino,
+                &format!("{}.{}", id, FASTA_EXT),
+                0o444, label.as_bytes().len(), FileClass::Fasta(Vec::new()),
+                accessed, modified),
+            seq_file: Fragment::make_virtual_file(
+                seq_ino,
+                &format!("{}.{}", id, SEQ_EXT),
+                0o664, 0, FileClass::Seq,
+                accessed, modified),
+        }
+    }
+
+    fn label_size(&self) -> usize {
+        self.label().len()
+    }
+
+    fn data_size(&self) -> usize {
         match &self.data {
             Backing::File(_, start, end) => end - start,
             Backing::Buffer(ref b)       => b.len(),
-            Backing::MMap(ref mmap)          => mmap.len()
+            Backing::MMap(ref mmap)      => mmap.len()
         }
+    }
+
+    fn total_size(&self) -> usize {
+        self.label_size() + self.data_size()
+    }
+
+    fn label(&self) -> String {
+        Fragment::make_label(&self.id, &self.name)
     }
 
     fn data(&self) -> Box<[u8]> {
         match &self.data {
             Backing::File(filename, start, _) => {
-                let mut buffer = vec![0u8; self.len() as usize];
+                let mut buffer = vec![0u8; self.data_size() as usize];
                 let mut f = fs::File::open(&filename).unwrap();
                 f.seek(SeekFrom::Start(*start as u64)).unwrap();
                 let _ = f.read(&mut buffer).unwrap();
@@ -98,20 +215,49 @@ impl BufferedFragment {
     fn to_filename(&self) -> String {
         format!("{}", self.id)
     }
+
+    fn file_from_filename(&self, name: &str) -> Option<&VirtualFile> {
+        if self.fasta_file.name == name {
+            Some(&self.fasta_file)
+        } else if self.seq_file.name == name {
+            Some(&self.seq_file)
+        } else {
+            None
+        }
+    }
+
+    fn file_from_ino(&self, ino: u64) -> Option<&VirtualFile> {
+        if self.fasta_file.ino == ino {
+            Some(&self.fasta_file)
+        } else if self.seq_file.ino == ino {
+            Some(&self.seq_file)
+        } else {
+            None
+        }
+    }
+
+    fn mut_file_from_ino(&mut self, ino: u64) -> Option<&mut VirtualFile> {
+        if self.fasta_file.ino == ino {
+            Some(&mut self.fasta_file)
+        } else if self.seq_file.ino == ino {
+            Some(&mut self.seq_file)
+        } else {
+            None
+        }
+    }
 }
 
 struct FustaSettings {
     mmap: bool,
-    keep_labels: bool,
 }
 
 struct FustaFS {
-    fragments: BTreeMap<u64, BufferedFragment>,
+    fragments: Vec<Fragment>,
     metadata: fs::Metadata,
     root_dir_attrs: FileAttr,
-    files_shared_attrs: FileAttr,
     filename: String,
     settings: FustaSettings,
+    current_ino: u64,
 }
 
 
@@ -119,7 +265,7 @@ impl FustaFS {
     fn new(settings: FustaSettings, filename: &str) -> FustaFS {
         let metadata = fs::metadata(filename).unwrap();
         let mut r = FustaFS {
-            fragments: BTreeMap::new(),
+            fragments: Vec::new(),
             filename: String::new(),
             root_dir_attrs: FileAttr {
                 ino: INO_DIR,
@@ -137,36 +283,18 @@ impl FustaFS {
                 rdev: 0,
                 flags: 0,
             },
-            files_shared_attrs: FileAttr {
-                ino: 0,
-                size: 0,
-                blocks: 1,
-                atime: metadata.accessed().unwrap(),
-                mtime: metadata.modified().unwrap(),
-                ctime: metadata.modified().unwrap(),
-                crtime: metadata.modified().unwrap(),
-                kind: FileType::RegularFile,
-                perm: 0o664,
-                nlink: 1,
-                uid: unsafe { libc::geteuid() },
-                gid: 20,
-                rdev: 0,
-                flags: 0,
-            },
             metadata: metadata,
             settings: settings,
+            current_ino: 3,
         };
 
         r.read_fasta(filename);
         r
     }
 
-    fn new_ino(&self) -> u64 {
-        let r =  if self.fragments.keys().next().is_none() {
-            3
-        } else {
-            self.fragments.keys().max_by(|k1, k2| k1.cmp(k2)).unwrap() + 1
-        };
+    fn new_ino(&mut self) -> u64 {
+        let r = self.current_ino;
+        self.current_ino += 1;
         debug!("New ino: {}", r);
         r
     }
@@ -174,7 +302,7 @@ impl FustaFS {
     fn read_fasta(&mut self, filename: &str) {
         info!("Reading {}...", filename);
         let fasta_file = fs::File::open(filename).unwrap();
-        let fragments = FastaReader::new(fasta_file, self.settings.keep_labels).collect::<Vec<_>>();
+        let fragments = FastaReader::new(fasta_file, false).collect::<Vec<_>>();
         info!("Done.");
         let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
         keys.sort();
@@ -184,27 +312,33 @@ impl FustaFS {
         let file = fs::File::open(filename).unwrap();
         self.filename = filename.to_owned();
 
-        self.fragments.clear();
-        for f in fragments.iter() {
-            self.fragments.insert(
-                self.new_ino(),
-                BufferedFragment {
-                    id: f.id.clone(),
-                    name: f.name.clone(),
-                    data: if self.settings.mmap {
-                        Backing::MMap(unsafe { memmap::MmapOptions::new().offset(f.pos.0 as u64).len(f.len).map(&file).unwrap() })
+        self.fragments = fragments.iter()
+            .map(|fragment| {
+                Fragment::new(
+                    &fragment.id, &fragment.name,
+                    if self.settings.mmap {
+                        Backing::MMap(unsafe {
+                            memmap::MmapOptions::new()
+                                .offset(fragment.pos.0 as u64)
+                                .len(fragment.len)
+                                .map(&file)
+                                .unwrap()
+                        })
                     } else {
-                        Backing::File(filename.to_owned(), f.pos.0, f.pos.1)
-                    }
-                }
-            );
-        }
+                        Backing::File(filename.to_owned(), fragment.pos.0, fragment.pos.1)
+                    },
+                    self.new_ino(), self.new_ino(),
+                    self.metadata.accessed().unwrap(),
+                    self.metadata.modified().unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
     }
 
     fn concretize(&mut self, force: bool) {
         // if force is set to true, we still force the rewrite so that "phantom" (deleted) fragments
         // are effectively removed
-        if !force && !self.fragments.values().any(|f| matches!(f.data, Backing::Buffer(_))) {
+        if !force && !self.fragments.iter().any(|f| matches!(f.data, Backing::Buffer(_))) {
             debug!("Nothing to concretize; leaving");
             return;
         }
@@ -213,15 +347,9 @@ impl FustaFS {
         { // Scope to ensure the content is correctly written
             trace!("Writing fragments");
             let mut tmp_file = fs::File::create(&tmp_filename).unwrap();
-            for fragment in self.fragments.values() {
+            for fragment in self.fragments.iter() {
                 trace!("Writing {}", fragment.id);
-                if !self.settings.keep_labels {
-                    tmp_file.write_all(format!(
-                        ">{} {}",
-                        fragment.id, fragment.name.as_ref().unwrap_or(&String::new())
-                    ).as_bytes()).unwrap();
-                }
-
+                tmp_file.write_all(fragment.label().as_bytes()).unwrap();
                 tmp_file.write_all(&fragment.data()).unwrap();
             }
         }
@@ -232,62 +360,95 @@ impl FustaFS {
         self.read_fasta(&filename);
     }
 
-    fn fragment_to_fileattrs(&self, ino: u64, fragment: &BufferedFragment) -> FileAttr {
-        FileAttr {
-            ino: ino,
-            size: fragment.len() as u64,
-            .. self.files_shared_attrs
-        }
+    fn fragment_from_ino(&self, ino: u64) -> Option<&Fragment> {
+        self.fragments.iter().find(|f| f.fasta_file.ino == ino || f.seq_file.ino == ino)
     }
 
-    fn fragment_from_ino(&mut self, ino: u64) -> Option<&mut BufferedFragment> {
-        self.fragments.get_mut(&ino)
+    fn mut_fragment_from_ino(&mut self, ino: u64) -> Option<&mut Fragment> {
+        self.fragments.iter_mut().find(|f| f.fasta_file.ino == ino || f.seq_file.ino == ino)
     }
 
-    fn fragment_from_filename(&self, name: &OsStr) -> Option<(&u64, &BufferedFragment)> {
-        self.fragments.iter().find(|(_, f)| f.to_filename() == name.to_str().unwrap())
+    fn fragment_from_filename(&self, name: &str) -> Option<&Fragment> {
+        self.fragments.iter().find(|f| f.fasta_file.name == name || f.seq_file.name == name)
     }
 
-    fn mut_fragment_from_filename(&mut self, name: &OsStr) -> Option<(&u64, &mut BufferedFragment)> {
-        self.fragments.iter_mut().find(|(_, f)| f.to_filename() == name.to_str().unwrap())
+    fn mut_fragment_from_filename(&mut self, name: &str) -> Option<&mut Fragment> {
+        self.fragments.iter_mut().find(|f| f.fasta_file.name == name || f.seq_file.name == name)
     }
+
 }
 
 
 impl Filesystem for FustaFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent != INO_DIR  {
-            warn!("\tParent {} does not exist", parent);
+            warn!("LOOKUP: parent {} does not exist", parent);
             reply.error(ENOENT);
-            return;
+        } else {
+            let name = name.to_str().unwrap();
+
+            if let Some(file) = self
+                .fragment_from_filename(name)
+                .and_then(|f| f.file_from_filename(name))
+            {
+                reply.entry(&TTL, &file.attrs, 0);
+            } else {
+                reply.error(ENOENT);
+            }
         }
 
-        if let Some((&i, fragment)) = self.fragment_from_filename(name) {
-            reply.entry(&TTL, &self.fragment_to_fileattrs(i, fragment), 0);
-        } else {
-            reply.error(ENOENT);
-        }
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         match ino {
             INO_DIR => reply.attr(&TTL, &self.root_dir_attrs),
-            ino if self.fragments.contains_key(&ino) => {
-                let fragment = &self.fragments[&ino];
-                reply.attr(&TTL, &self.fragment_to_fileattrs(ino, &fragment))
-            },
             _ => {
-                warn!("\tino `{}` does not exist ({:?})", ino, self.fragments.len());
-                reply.error(ENOENT)
+                if let Some(file) = self
+                    .fragment_from_ino(ino)
+                    .and_then(|f| f.file_from_ino(ino))
+                {
+                    reply.attr(&TTL, &file.attrs)
+                } else {
+                    warn!("\tino `{}` does not exist", ino);
+                    reply.error(ENOENT)
+                }
             },
         }
     }
 
     fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, size: u32, reply: ReplyData) {
-        if self.fragments.contains_key(&ino) {
-            reply.data(&self.fragments[&ino].chunk(offset, size))
+        if self.fragment_from_ino(ino).is_some() {
+            let fragment = self.mut_fragment_from_ino(ino).unwrap();
+            match fragment.file_from_ino(ino).unwrap().class {
+                FileClass::Fasta(_) => {
+                    let label_size = fragment.label_size() as i64;
+                    if offset > label_size as i64 {
+                        reply.data(&fragment.chunk(offset - label_size, size))
+                    } else {
+                        let end = offset as usize + size as usize;
+                        let label = fragment.label().clone();
+                        let data_chunk = fragment.chunk(0, std::cmp::min(fragment.data_size() as u32, size));
+                        match fragment.mut_file_from_ino(ino).unwrap().class {
+                            FileClass::Fasta(ref mut header_buffer) => {
+                                if end > header_buffer.len() {
+                                    *header_buffer = label.as_bytes().iter()
+                                        .chain(data_chunk.iter())
+                                        .cloned()
+                                        .take(end as usize)
+                                        .collect::<Vec<_>>();
+                                }
+                                reply.data(&header_buffer[offset as usize .. std::cmp::min(end, header_buffer.len())]);
+                            }
+                            _ => { panic!("WTF") }
+                        }
+                        }
+                    }
+                    FileClass::Seq => {
+                        reply.data(&fragment.chunk(offset, size))
+                    }
+                }
         } else {
-            warn!("\t{} is not a fragment", ino);
+            warn!("READ: {} is not a file", ino);
             reply.error(ENOENT);
         }
     }
@@ -303,47 +464,46 @@ impl Filesystem for FustaFS {
             INO_DIR     => (FileType::Directory, ".".to_owned()),
             INO_DIR + 1 => (FileType::Directory, "..".to_owned()),
         };
-        for (&i, fragment) in self.fragments.iter() {
-            entries.insert(i, (FileType::RegularFile, fragment.to_filename()));
+        for f in self.fragments.iter() {
+            entries.insert(f.fasta_file.ino, (FileType::RegularFile, f.fasta_file.name.clone()));
+            entries.insert(f.seq_file.ino, (FileType::RegularFile, f.seq_file.name.clone()));
         }
 
         for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
+            debug!("{} {} {:?}", ino, o, entry);
             reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
         }
         reply.ok();
     }
 
     fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        debug!("UNLINK {}/{:?}", parent, name);
         if parent != INO_DIR {
             warn!("{} is not a directory", parent);
             reply.error(ENOENT);
             return;
         }
 
-        if let Some((&ino, _)) = self.fragment_from_filename(name) {
-            match self.fragments.remove(&ino) {
-                Some(_) => {
-                    self.concretize(true);
-                    reply.ok();
-                },
-                None    => {
-                    warn!("Unknown ino: `{:?}`", name);
-                    reply.error(ENOENT);
-                }
+        let name = name.to_str().unwrap();
+        if self
+            .fragment_from_filename(name)
+            .and_then(|f| f.file_from_filename(name))
+            .is_some() {
+                self.fragments.retain(|f| f.fasta_file.name != name && f.seq_file.name != name);
+                self.concretize(true)
+            } else {
+                warn!("UNLINK: unknown file: `{:?}`", name);
+                reply.error(ENOENT);
             }
-        } else {
-            warn!("Unknown file: `{:?}`", name);
-            reply.error(ENOENT);
-        }
     }
 
     fn mknod(&mut self, _req: &Request, parent: u64, name: &OsStr, _mode: u32, _rdev: u32, reply: ReplyEntry) {
+        warn!("Creating {:?}", name);
         if parent != INO_DIR {
             reply.error(ENOENT);
             return;
         }
 
+        let name = name.to_str().unwrap();
         // If pathname already exists [...], this call fails with an EEXIST error.
         if self.fragment_from_filename(name).is_some() {
             warn!("Cannot create `{:?}`, already exists", name);
@@ -351,34 +511,27 @@ impl Filesystem for FustaFS {
             return
         }
 
-        let new_ino = self.new_ino();
-        let new_fragment = BufferedFragment {
-            id: name.to_str().unwrap().to_string(),
-            name: None,
-            data: Backing::Buffer(format!(">{:?}\n", name).as_bytes().to_vec())
-        };
-            reply.entry(&TTL, &self.fragment_to_fileattrs(new_ino, &new_fragment), 0);
-        self.fragments.insert(new_ino, new_fragment);
-    }
+        let new_fragment = Fragment::with_empty_buffer(
+            name, self.new_ino(), self.new_ino(),
+            self.metadata.accessed().unwrap(), self.metadata.modified().unwrap(),
+        );
 
-    fn create(&mut self, _req: &Request, _parent: u64, name: &OsStr, _mode: u32, flags: u32, reply: ReplyCreate) {
-        warn!("CREATE");
-        let name = name.to_str().unwrap().to_string();
-
-        let new_ino = self.new_ino();
-        let new_fragment = BufferedFragment {
-            id: name,
-            name: None,
-            data: Backing::Buffer(Vec::new())
-        };
-
-        reply.created(&TTL, &self.fragment_to_fileattrs(new_ino, &new_fragment), 0, 0, flags);
-        self.fragments.insert(new_ino, new_fragment);
+        reply.entry(&TTL, &new_fragment.fasta_file.attrs, 0);
+        self.fragments.push(new_fragment);
     }
 
     fn write(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, data: &[u8], _flags: u32, reply: ReplyWrite) {
-        debug!("WRITE {}: {}/{:?}", ino, offset, data);
-        if let Some(mut fragment) = self.fragment_from_ino(ino) {
+        if self.fragment_from_ino(ino).is_none() {
+            reply.error(ENOENT);
+            return;
+        }
+
+        if self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().class.readonly() {
+            reply.error(EINVAL);
+        } else {
+            // If it's a raw seq file, we can write
+            let mut fragment = self.mut_fragment_from_ino(ino).expect("Something went very wrong");
+
             // As soon as there's a write, we have to switch to a buffer-backed storage
             if !matches!(fragment.data, Backing::Buffer(_)) {
                 fragment.data = Backing::Buffer(fragment.data().to_vec());
@@ -386,7 +539,7 @@ impl Filesystem for FustaFS {
 
             // Ensure that the backing buffer is big enough
             let max_size = offset as usize + data.len();
-            if max_size > fragment.len() { fragment.extend(max_size) }
+            if max_size > fragment.data_size() { fragment.extend(max_size) }
 
             // Then finally write the data
             if let Backing::Buffer(b) = &mut fragment.data {
@@ -397,8 +550,6 @@ impl Filesystem for FustaFS {
             } else {
                 panic!("Something went very wrong...")
             }
-        } else {
-            reply.error(ENOENT);
         }
     }
 
@@ -410,7 +561,7 @@ impl Filesystem for FustaFS {
                crtime: Option<SystemTime>, chgtime: Option<SystemTime>, bkuptime: Option<SystemTime>,
                flags: Option<u32>,
                reply: ReplyAttr) {
-        error!("SETATTR");
+        info!("SETATTR");
         debug!("mode       {:?}", mode);
         debug!("gid        {:?}", gid);
         debug!("uid        {:?}", uid);
@@ -422,57 +573,81 @@ impl Filesystem for FustaFS {
         debug!("crtime     {:?}", crtime);
         debug!("flags      {:?}", flags);
 
-        if let Some(ref mut fragment) = self.fragments.get_mut(&ino) {
-            if let Some(uid) = uid         { self.files_shared_attrs.uid = uid }
-            if let Some(gid) = gid         { self.files_shared_attrs.gid = gid }
-            // TODO
-            // - store per file
-            // - see how setuid is suid/sgid works
-            if let Some(mode) = mode       { self.files_shared_attrs.perm = mode as u16 }
-            if let Some(atime) = atime     { self.files_shared_attrs.atime = atime }
-            if let Some(mtime) = mtime     { self.files_shared_attrs.mtime = mtime }
-            if let Some(chgtime) = chgtime { self.files_shared_attrs.mtime = chgtime }
-            if let Some(crtime) = crtime   { self.files_shared_attrs.crtime = crtime }
-            // macOS only
-            if let Some(flags) = flags     { self.files_shared_attrs.flags = flags }
-            if let Some(size) = size {
-                let size = size as usize;
-                if size == 0 { // Clear the file, called by the truncate syscall
-                    fragment.data = Backing::Buffer(Vec::new());
-                } else if size  != fragment.len() { // Redim the file
-                    if !matches!(fragment.data, Backing::Buffer(_)) {
-                        fragment.data = Backing::Buffer(fragment.data().to_vec());
-                    }
-                    fragment.extend(size)
-                }
-                self.files_shared_attrs.size = size as u64;
-            }
 
-            reply.attr(&TTL, &self.fragment_to_fileattrs(ino, &self.fragments[&ino]));
-        } else {
-            warn!("\t{:?} does not exist", ino);
-            reply.error(ENOENT);
+        // TODO TODO
+        // if let Some(uid) = uid         { file.attrs.uid = uid }
+        // if let Some(gid) = gid         { file.attrs.gid = gid }
+        // if let Some(mode) = mode       { file.attrs.perm = mode as u16 }
+        // if let Some(atime) = atime     { file.attrs.atime = atime }
+        // if let Some(mtime) = mtime     { file.attrs.mtime = mtime }
+        // if let Some(chgtime) = chgtime { file.attrs.mtime = chgtime }
+        // if let Some(crtime) = crtime   { file.attrs.crtime = crtime }
+        // // macOS only
+        // if let Some(flags) = flags     { file.attrs.flags = flags }
+        if let Some(size) = size {
+            if self.fragment_from_ino(ino).is_some() {
+                if self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().class.readonly() {
+                    reply.error(EINVAL);
+                } else {
+                    let size = size as usize;
+                    if size == 0 { // Clear the file, called by the truncate syscall
+                        self.mut_fragment_from_ino(ino).map(|f| f.data = Backing::Buffer(Vec::new()));
+                    } else if size != self.fragment_from_ino(ino).map(Fragment::data_size).unwrap() { // Redim the file
+                        let mut fragment = self.mut_fragment_from_ino(ino).unwrap();
+                        if !matches!(fragment.data, Backing::Buffer(_)) {
+                            fragment.data = Backing::Buffer(fragment.data().to_vec());
+                        }
+                        fragment.extend(size)
+                    }
+                    self
+                        .mut_fragment_from_ino(ino)
+                        .and_then(|f| f.mut_file_from_ino(ino))
+                        .unwrap().attrs.size = size as u64;
+                    reply.attr(&TTL, &self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().attrs);
+                }
+            } else {
+                warn!("\t{:?} does not exist", ino);
+                reply.error(ENOENT);
+            }
         }
     }
 
     fn destroy(&mut self, _req: &Request) {}
 
     /// Rename a file.
-    fn rename(&mut self, _req: &Request, _parent: u64, _name: &OsStr, _newparent: u64, _newname: &OsStr, reply: ReplyEmpty) {
-        error!("RENAME");
-        reply.error(ENOSYS);
+    fn rename(&mut self, _req: &Request, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr, reply: ReplyEmpty) {
+        if parent != INO_DIR || newparent != INO_DIR {
+            error!("RENAME: Invalide parent or newparent");
+            reply.error(EINVAL);
+        } else {
+            if let Some(ref mut fragment) = self.mut_fragment_from_filename(name.to_str().unwrap()) {
+                fragment.id = newname.to_str().unwrap().to_string();
+                info!("RENAME: {:?} -> {:?}", name, newname);
+                self.concretize(true);
+                reply.ok()
+            } else {
+                warn!("\t{:?} does not exist", name);
+                reply.error(ENOENT);
+            }
+        }
     }
 
     fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
         info!("FSYNC");
-        self.concretize(false);
+        self.concretize(true);
         reply.ok();
     }
 
     fn fsyncdir (&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
         info!("FSYNCDIR");
         self.concretize(true);
-        reply.error(ENOSYS);
+        reply.ok();
+    }
+
+    fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
+        info!("FLUSH");
+        self.concretize(true);
+        reply.ok();
     }
 
     /// Get file system statistics.
@@ -526,10 +701,6 @@ fn main() {
              .short("E")
              .long("non-empty")
              .help("Perform the mount even if the destination folder is not empty"))
-        .arg(Arg::with_name("labels")
-             .short("L")
-             .long("keep-labels")
-             .help("Keep the FASTA labels in the virtual files"))
         .get_matches();
 
     let log_level = match args.occurrences_of("v") {
@@ -543,11 +714,11 @@ fn main() {
         .build();
 
     if args.is_present("daemon") {
-        let mut log_file = env::temp_dir();
+        let mut log_file = std::env::temp_dir();
         log_file.push("fusta.log");
         WriteLogger::new(log_level, log_config, std::fs::File::create(log_file).unwrap());
 
-        let mut pid_file = env::temp_dir();
+        let mut pid_file = std::env::temp_dir();
         pid_file.push("fusta.pid");
 
         Daemonize::new()
@@ -569,11 +740,9 @@ fn main() {
     ];
     let settings = FustaSettings {
         mmap: args.is_present("mmap"),
-        keep_labels: args.is_present("labels"),
     };
 
     info!("Using MMAP:      {}", settings.mmap);
-    info!("Keeping labels:  {}", settings.keep_labels);
 
     let fs = FustaFS::new(settings, &fasta_file);
     if !std::path::Path::new(&mountpoint).is_dir() {

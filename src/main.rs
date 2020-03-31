@@ -2,9 +2,9 @@ use std::env;
 use fuse::*;
 
 use std::ffi::OsStr;
-use std::time::Duration;
+use std::time::{SystemTime, Duration};
 use std::fs;
-use libc::ENOENT;
+use libc::*;
 use daemonize::*;
 use std::collections::BTreeMap;
 
@@ -19,8 +19,10 @@ use fusta::fasta::*;
 use log::*;
 use simplelog::*;
 
-const TTL: Duration = Duration::from_secs(100);
+const TTL: Duration = Duration::from_secs(1);
 const INO_DIR: u64 = 1;
+const FASTA_EXT: &str = "fa";
+const EXTENSIONS: &[&str] = &["FA", "FASTA"];
 
 #[derive(Debug)]
 enum Backing {
@@ -83,6 +85,19 @@ impl BufferedFragment {
             }
         }
     }
+
+    fn extend(&mut self, size: usize) {
+        match &mut self.data {
+            Backing::Buffer(ref mut b) => {
+                b.resize_with(size, Default::default)
+            }
+            _ => unreachable!()
+        }
+    }
+
+    fn to_filename(&self) -> String {
+        format!("{}", self.id)
+    }
 }
 
 struct FustaSettings {
@@ -94,6 +109,7 @@ struct FustaFS {
     fragments: BTreeMap<u64, BufferedFragment>,
     metadata: fs::Metadata,
     root_dir_attrs: FileAttr,
+    files_shared_attrs: FileAttr,
     filename: String,
     settings: FustaSettings,
 }
@@ -101,6 +117,7 @@ struct FustaFS {
 
 impl FustaFS {
     fn new(settings: FustaSettings, filename: &str) -> FustaFS {
+        let metadata = fs::metadata(filename).unwrap();
         let mut r = FustaFS {
             fragments: BTreeMap::new(),
             filename: String::new(),
@@ -113,14 +130,30 @@ impl FustaFS {
                 ctime: std::time::SystemTime::now(),
                 crtime: std::time::SystemTime::now(),
                 kind: FileType::Directory,
-                perm: 0o555,
-                nlink: 2,
+                perm: 0o775,
+                nlink: 1,
                 uid: unsafe { libc::geteuid() },
                 gid: unsafe { libc::getgid() },
                 rdev: 0,
                 flags: 0,
             },
-            metadata: fs::metadata(filename).unwrap(),
+            files_shared_attrs: FileAttr {
+                ino: 0,
+                size: 0,
+                blocks: 1,
+                atime: metadata.accessed().unwrap(),
+                mtime: metadata.modified().unwrap(),
+                ctime: metadata.modified().unwrap(),
+                crtime: metadata.modified().unwrap(),
+                kind: FileType::RegularFile,
+                perm: 0o664,
+                nlink: 1,
+                uid: unsafe { libc::geteuid() },
+                gid: 20,
+                rdev: 0,
+                flags: 0,
+            },
+            metadata: metadata,
             settings: settings,
         };
 
@@ -203,27 +236,20 @@ impl FustaFS {
         FileAttr {
             ino: ino,
             size: fragment.len() as u64,
-            blocks: 1,
-            atime: self.metadata.accessed().unwrap(),
-            mtime: self.metadata.modified().unwrap(),
-            ctime: self.metadata.modified().unwrap(),
-            crtime: self.metadata.modified().unwrap(),
-            kind: FileType::RegularFile,
-            perm: 0o444,
-            nlink: 1,
-            uid: unsafe { libc::geteuid() },
-            gid: 20,
-            rdev: 0,
-            flags: 0,
+            .. self.files_shared_attrs
         }
     }
 
-    // fn fragment_from_ino(&self, ino: u64) -> Option<BufferedFragment> {
-    //     if ino >= 2 && ino < self.fragments.len()
-    // }
+    fn fragment_from_ino(&mut self, ino: u64) -> Option<&mut BufferedFragment> {
+        self.fragments.get_mut(&ino)
+    }
 
-    fn fragment_from_name(&self, name: &OsStr) -> Option<(&u64, &BufferedFragment)> {
-        self.fragments.iter().find(|(_, f)| f.id == name.to_str().unwrap())
+    fn fragment_from_filename(&self, name: &OsStr) -> Option<(&u64, &BufferedFragment)> {
+        self.fragments.iter().find(|(_, f)| f.to_filename() == name.to_str().unwrap())
+    }
+
+    fn mut_fragment_from_filename(&mut self, name: &OsStr) -> Option<(&u64, &mut BufferedFragment)> {
+        self.fragments.iter_mut().find(|(_, f)| f.to_filename() == name.to_str().unwrap())
     }
 }
 
@@ -232,15 +258,15 @@ impl Filesystem for FustaFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         debug!("LOOKUP {}/{:?}", parent, name);
         if parent != INO_DIR  {
-            debug!("\tParent {} does not exist", parent);
+            warn!("\tParent {} does not exist", parent);
             reply.error(ENOENT);
             return;
         }
 
-        if let Some((&i, fragment)) = self.fragment_from_name(name) {
+        if let Some((&i, fragment)) = self.fragment_from_filename(name) {
             reply.entry(&TTL, &self.fragment_to_fileattrs(i, fragment), 0);
         } else {
-            debug!("\t{:?} does not exist", name);
+            warn!("\t{:?} does not exist", name);
             reply.error(ENOENT);
         }
     }
@@ -255,7 +281,7 @@ impl Filesystem for FustaFS {
                 reply.attr(&TTL, &self.fragment_to_fileattrs(ino, &fragment))
             },
             _ => {
-                debug!("\tino {} does not exist ({:?})", ino, self.fragments.len());
+                warn!("\tino {} does not exist ({:?})", ino, self.fragments.len());
                 reply.error(ENOENT)
             },
         }
@@ -267,7 +293,7 @@ impl Filesystem for FustaFS {
         if self.fragments.contains_key(&ino) {
             reply.data(&self.fragments[&ino].chunk(offset, size))
         } else {
-            debug!("\t{} is not a file", ino);
+            warn!("\t{} is not a file", ino);
             reply.error(ENOENT);
         }
     }
@@ -276,6 +302,7 @@ impl Filesystem for FustaFS {
         debug!("READDIR {}", ino);
 
         if ino != INO_DIR {
+            warn!("{} is not a directory", ino);
             reply.error(ENOENT);
             return;
         }
@@ -285,7 +312,7 @@ impl Filesystem for FustaFS {
             INO_DIR + 1 => (FileType::Directory, "..".to_owned()),
         };
         for (&i, fragment) in self.fragments.iter() {
-            entries.insert(i, (FileType::RegularFile, fragment.id.to_owned()));
+            entries.insert(i, (FileType::RegularFile, fragment.to_filename()));
         }
 
         for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
@@ -297,26 +324,178 @@ impl Filesystem for FustaFS {
     fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         debug!("UNLINK {}/{:?}", parent, name);
         if parent != INO_DIR {
+            warn!("{} is not a directory", parent);
             reply.error(ENOENT);
             return;
         }
 
-        if let Some((&ino, _)) = self.fragment_from_name(name) {
+        if let Some((&ino, _)) = self.fragment_from_filename(name) {
             match self.fragments.remove(&ino) {
                 Some(_) => {
                     self.concretize(true);
                     reply.ok();
                 },
                 None    => {
-                    debug!("Unknown ino: `{:?}`", name);
+                    warn!("Unknown ino: `{:?}`", name);
                     reply.error(ENOENT);
                 }
             }
         } else {
-            debug!("Unknown file: `{:?}`", name);
+            warn!("Unknown file: `{:?}`", name);
             reply.error(ENOENT);
         }
+    }
 
+    fn mknod(&mut self, _req: &Request, parent: u64, name: &OsStr, _mode: u32, _rdev: u32, reply: ReplyEntry) {
+        if parent != INO_DIR {
+            reply.error(ENOENT);
+            return;
+        }
+
+        // If pathname already exists [...], this call fails with an EEXIST error.
+        if self.fragment_from_filename(name).is_some() {
+            warn!("Cannot create `{:?}`, already exists", name);
+            reply.error(EEXIST);
+            return
+        }
+
+        let new_ino = self.new_ino();
+        let new_fragment = BufferedFragment {
+            id: name.to_str().unwrap().to_string(),
+            name: None,
+            data: Backing::Buffer(format!(">{:?}\n", name).as_bytes().to_vec())
+        };
+            reply.entry(&TTL, &self.fragment_to_fileattrs(new_ino, &new_fragment), 0);
+        self.fragments.insert(new_ino, new_fragment);
+    }
+
+    fn create(&mut self, _req: &Request, _parent: u64, name: &OsStr, _mode: u32, flags: u32, reply: ReplyCreate) {
+        warn!("CREATE");
+        let name = name.to_str().unwrap().to_string();
+
+        let new_ino = self.new_ino();
+        let new_fragment = BufferedFragment {
+            id: name,
+            name: None,
+            data: Backing::Buffer(Vec::new())
+        };
+
+        reply.created(&TTL, &self.fragment_to_fileattrs(new_ino, &new_fragment), 0, 0, flags);
+        self.fragments.insert(new_ino, new_fragment);
+    }
+
+    fn write(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, data: &[u8], _flags: u32, reply: ReplyWrite) {
+        debug!("WRITE {}: {}/{:?}", ino, offset, data);
+        if let Some(mut fragment) = self.fragment_from_ino(ino) {
+            // As soon as there's a write, we have to switch to a buffer-backed storage
+            if !matches!(fragment.data, Backing::Buffer(_)) {
+                fragment.data = Backing::Buffer(fragment.data().to_vec());
+            }
+
+            // Ensure that the backing buffer is big enough
+            let max_size = offset as usize + data.len();
+            if max_size > fragment.len() { fragment.extend(max_size) }
+
+            // Then finally write the data
+            if let Backing::Buffer(b) = &mut fragment.data {
+                let start = offset as usize;
+                let end = start + data.len();
+                b.splice(start .. end, data.iter().cloned());
+                reply.written(data.len() as u32);
+            } else {
+                panic!("Something went very wrong...")
+            }
+        } else {
+            reply.error(ENOENT);
+        }
+    }
+
+    fn setattr(&mut self, _req: &Request<'_>, ino: u64,
+               mode: Option<u32>, uid: Option<u32>, gid: Option<u32>,
+               size: Option<u64>,
+               atime: Option<SystemTime>, mtime: Option<SystemTime>,
+               _fh: Option<u64>,
+               crtime: Option<SystemTime>, chgtime: Option<SystemTime>, bkuptime: Option<SystemTime>,
+               flags: Option<u32>,
+               reply: ReplyAttr) {
+        error!("SETATTR");
+        debug!("mode       {:?}", mode);
+        debug!("gid        {:?}", gid);
+        debug!("uid        {:?}", uid);
+        debug!("size       {:?}", size);
+        debug!("atime      {:?}", atime);
+        debug!("mtime      {:?}", mtime);
+        debug!("bkuptime   {:?}", bkuptime);
+        debug!("chgtime    {:?}", chgtime);
+        debug!("crtime     {:?}", crtime);
+        debug!("flags      {:?}", flags);
+
+        if let Some(ref mut fragment) = self.fragments.get_mut(&ino) {
+            if let Some(uid) = uid         { self.files_shared_attrs.uid = uid }
+            if let Some(gid) = gid         { self.files_shared_attrs.gid = gid }
+            // TODO
+            // - store per file
+            // - see how setuid is suid/sgid works
+            if let Some(mode) = mode       { self.files_shared_attrs.perm = mode as u16 }
+            if let Some(atime) = atime     { self.files_shared_attrs.atime = atime }
+            if let Some(mtime) = mtime     { self.files_shared_attrs.mtime = mtime }
+            if let Some(chgtime) = chgtime { self.files_shared_attrs.mtime = chgtime }
+            if let Some(crtime) = crtime   { self.files_shared_attrs.crtime = crtime }
+            // macOS only
+            if let Some(flags) = flags     { self.files_shared_attrs.flags = flags }
+            if let Some(size) = size {
+                let size = size as usize;
+                if size == 0 { // Clear the file, called by the truncate syscall
+                    fragment.data = Backing::Buffer(Vec::new());
+                } else if size  != fragment.len() { // Redim the file
+                    if !matches!(fragment.data, Backing::Buffer(_)) {
+                        fragment.data = Backing::Buffer(fragment.data().to_vec());
+                    }
+                    fragment.extend(size)
+                }
+                self.files_shared_attrs.size = size as u64;
+            }
+
+            reply.attr(&TTL, &self.fragment_to_fileattrs(ino, &self.fragments[&ino]));
+        } else {
+            warn!("\t{:?} does not exist", ino);
+            reply.error(ENOENT);
+        }
+    }
+
+    fn destroy(&mut self, _req: &Request) {}
+
+    /// Rename a file.
+    fn rename(&mut self, _req: &Request, _parent: u64, _name: &OsStr, _newparent: u64, _newname: &OsStr, reply: ReplyEmpty) {
+        error!("RENAME");
+        reply.error(ENOSYS);
+    }
+
+    fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
+        info!("FSYNC");
+        self.concretize(false);
+        reply.ok();
+    }
+
+    fn fsyncdir (&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
+        info!("FSYNCDIR");
+        self.concretize(true);
+        reply.error(ENOSYS);
+    }
+
+    /// Get file system statistics.
+    fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
+        info!("STATFS");
+        reply.statfs(
+            0,                           // blocks
+            0,                           // bfree
+            0,                           // bavail
+            self.fragments.len() as u64, // files
+            0,                           // ffree
+            512,                         //bsize
+            255,                         // namelen
+            0                            // frsize
+        );
     }
 }
 
@@ -390,7 +569,12 @@ fn main() {
 
     let fasta_file = value_t!(args, "FASTA", String).unwrap();
     let mountpoint = value_t!(args, "DEST", String).unwrap();
-    let mut fuse_options: Vec<&OsStr> = vec![&OsStr::new("-o"), &OsStr::new("auto_unmount")];
+    let mut fuse_options: Vec<&OsStr> = vec![
+        &OsStr::new("-o"), &OsStr::new("auto_unmount"),
+        &OsStr::new("-o"), &OsStr::new("atomic_o_trunc"),
+        &OsStr::new("-o"), &OsStr::new("default_permissions"),
+        &OsStr::new("-o"), &OsStr::new("subtype"), &OsStr::new(&fasta_file),
+    ];
     let settings = FustaSettings {
         mmap: args.is_present("mmap"),
         keep_labels: args.is_present("labels"),

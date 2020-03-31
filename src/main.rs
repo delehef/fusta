@@ -256,7 +256,6 @@ impl FustaFS {
 
 impl Filesystem for FustaFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        debug!("LOOKUP {}/{:?}", parent, name);
         if parent != INO_DIR  {
             warn!("\tParent {} does not exist", parent);
             reply.error(ENOENT);
@@ -266,14 +265,11 @@ impl Filesystem for FustaFS {
         if let Some((&i, fragment)) = self.fragment_from_filename(name) {
             reply.entry(&TTL, &self.fragment_to_fileattrs(i, fragment), 0);
         } else {
-            warn!("\t{:?} does not exist", name);
             reply.error(ENOENT);
         }
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-        debug!("GETATTR {}", ino);
-
         match ino {
             INO_DIR => reply.attr(&TTL, &self.root_dir_attrs),
             ino if self.fragments.contains_key(&ino) => {
@@ -281,26 +277,22 @@ impl Filesystem for FustaFS {
                 reply.attr(&TTL, &self.fragment_to_fileattrs(ino, &fragment))
             },
             _ => {
-                warn!("\tino {} does not exist ({:?})", ino, self.fragments.len());
+                warn!("\tino `{}` does not exist ({:?})", ino, self.fragments.len());
                 reply.error(ENOENT)
             },
         }
     }
 
     fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, size: u32, reply: ReplyData) {
-        debug!("READ {} {} | {}", ino, offset, size);
-
         if self.fragments.contains_key(&ino) {
             reply.data(&self.fragments[&ino].chunk(offset, size))
         } else {
-            warn!("\t{} is not a file", ino);
+            warn!("\t{} is not a fragment", ino);
             reply.error(ENOENT);
         }
     }
 
     fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
-        debug!("READDIR {}", ino);
-
         if ino != INO_DIR {
             warn!("{} is not a directory", ino);
             reply.error(ENOENT);

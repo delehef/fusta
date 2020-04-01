@@ -10,7 +10,6 @@ pub struct Fragment {
 }
 
 pub struct FastaReader<T> {
-    keep_labels: bool,
     buffer_lines: Lines<BufReader<T>>,
     current_header: Option<String>,
     current_start: usize,
@@ -18,9 +17,8 @@ pub struct FastaReader<T> {
 }
 
 impl<T: Read> FastaReader<T> {
-    pub fn new(file: T, keep_labels: bool) -> FastaReader<T> {
+    pub fn new(file: T) -> FastaReader<T> {
         FastaReader {
-            keep_labels: keep_labels,
             buffer_lines: BufReader::new(file).lines(),
             current_header: None,
             current_start: 0,
@@ -46,29 +44,16 @@ impl<T: Read> Iterator for FastaReader<T> {
                         name: if split.len() > 1 { Some(split[1..].join(" ")) } else { None },
 
                         pos: (self.current_start, self.current_offset - len),
-                        len: if self.keep_labels {
-                            self.current_offset - len - self.current_start
-                        } else {
-                            self.current_offset - self.current_start - len
-                        },
+                        len: self.current_offset - self.current_start - len
                     };
                     self.current_header = Some(String::from(&line[1..]));
 
-                    if self.keep_labels {
-                        self.current_start = self.current_offset - len;
-                    } else {
-                        self.current_start = self.current_offset;
-                    }
+                    self.current_start = self.current_offset;
 
                     return Some(r);
                 } else {
                     self.current_header = Some(String::from(&line[1..]));
-
-                    if self.keep_labels {
-                        self.current_start = self.current_offset - if self.current_offset > 0 { len } else { 0 };
-                    } else {
-                        self.current_start = self.current_offset ;
-                    }
+                    self.current_start = self.current_offset ;
                 }
                 continue;
             }

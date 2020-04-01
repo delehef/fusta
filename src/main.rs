@@ -332,7 +332,7 @@ impl FustaFS {
     fn read_fasta(&mut self, filename: &str) {
         info!("Reading {}...", filename);
         let fasta_file = fs::File::open(filename).unwrap();
-        let fragments = FastaReader::new(fasta_file, false).collect::<Vec<_>>();
+        let fragments = FastaReader::new(fasta_file).collect::<Vec<_>>();
         info!("Done.");
         let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
         keys.sort();
@@ -838,13 +838,16 @@ impl Filesystem for FustaFS {
 
                 debug!("Parsing...");
                 tmpfile.seek(SeekFrom::Start(0)).unwrap();
-                let fastas = FastaReader::new(&tmpfile, false).collect::<Vec<_>>();
+                let fastas = FastaReader::new(&tmpfile).collect::<Vec<_>>();
 
+                let new_keys = fastas.iter().map(|f| &f.id).collect::<Vec<_>>();
                 let old_keys = self.fragments
                     .iter()
                     .map(|f| &f.id)
                     .cloned()
                     .collect::<Vec<_>>();
+
+                if !NO_REPLACE { self.fragments.retain(|f| !new_keys.contains(&&f.id)) }
 
                 self.fragments.extend(
                     fastas.iter()
@@ -853,7 +856,7 @@ impl Filesystem for FustaFS {
                             tmpfile.seek(SeekFrom::Start(fasta.pos.0 as u64)).unwrap();
                             let _ = tmpfile.read(&mut seq).unwrap();
 
-                            if old_keys.contains(&fasta.id) {
+                            if old_keys.contains(&fasta.id) && NO_REPLACE {
                                 error!("Skipping {}, already existing", &fasta.id);
                                 None
                             } else {

@@ -472,12 +472,12 @@ impl Filesystem for FustaFS {
                             }
                             _ => { panic!("WTF") }
                         }
-                        }
-                    }
-                    FileClass::Seq => {
-                        reply.data(&fragment.chunk(offset, size))
                     }
                 }
+                FileClass::Seq => {
+                    reply.data(&fragment.chunk(offset, size))
+                }
+            }
         } else {
             warn!("READ: {} is not a file", ino);
             reply.error(ENOENT);
@@ -560,7 +560,7 @@ impl Filesystem for FustaFS {
     fn mknod(&mut self, _req: &Request, parent: u64, name: &OsStr, _mode: u32, _rdev: u32, reply: ReplyEntry) {
         match parent {
             ROOT_DIR | SEQ_DIR | FASTA_DIR => {
-                warn!("MKNOD: writing in parent is forbidden");
+                warn!("MKNOD: writing in {} is forbidden", parent);
                 reply.error(EACCES);
             },
             // ADD_DIR = {
@@ -600,7 +600,7 @@ impl Filesystem for FustaFS {
         }
 
         if self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().class.readonly() {
-            reply.error(EINVAL);
+            reply.error(EACCES);
         } else {
             // If it's a raw seq file, we can write
             let mut fragment = self.mut_fragment_from_ino(ino).expect("Something went very wrong");
@@ -646,44 +646,52 @@ impl Filesystem for FustaFS {
         debug!("crtime     {:?}", crtime);
         debug!("flags      {:?}", flags);
 
-
-        // TODO TODO
-        // if let Some(uid) = uid         { file.attrs.uid = uid }
-        // if let Some(gid) = gid         { file.attrs.gid = gid }
-        // if let Some(mode) = mode       { file.attrs.perm = mode as u16 }
-        // if let Some(atime) = atime     { file.attrs.atime = atime }
-        // if let Some(mtime) = mtime     { file.attrs.mtime = mtime }
-        // if let Some(chgtime) = chgtime { file.attrs.mtime = chgtime }
-        // if let Some(crtime) = crtime   { file.attrs.crtime = crtime }
-        // // macOS only
-        // if let Some(flags) = flags     { file.attrs.flags = flags }
-        if let Some(size) = size {
-            if self.fragment_from_ino(ino).is_some() {
-                if self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().class.readonly() {
-                    reply.error(EINVAL);
-                } else {
-                    let size = size as usize;
-                    if size == 0 { // Clear the file, called by the truncate syscall
-                        self.mut_fragment_from_ino(ino).map(|f| f.data = Backing::Buffer(Vec::new()));
-                    } else if size != self.fragment_from_ino(ino).map(Fragment::data_size).unwrap() { // Redim the file
-                        let mut fragment = self.mut_fragment_from_ino(ino).unwrap();
-                        if !matches!(fragment.data, Backing::Buffer(_)) {
-                            fragment.data = Backing::Buffer(fragment.data().to_vec());
+        match ino {
+            ROOT_DIR  => { reply.error(EACCES) }
+            SEQ_DIR   => { reply.error(EACCES) }
+            FASTA_DIR => { reply.error(EACCES) }
+            _ => {
+                if self.fragment_from_ino(ino).is_some() {
+                    if self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().class.readonly() {
+                        reply.error(EACCES);
+                    } else {
+                        if let Some(file) = self.mut_fragment_from_ino(ino).and_then(|f| f.mut_file_from_ino(ino)) {
+                            if let Some(uid) = uid         {file.attrs.uid = uid}
+                            if let Some(gid) = gid         {file.attrs.gid = gid}
+                            if let Some(atime) = atime     { file.attrs.atime = atime }
+                            if let Some(mtime) = mtime     { file.attrs.mtime = mtime }
+                            if let Some(chgtime) = chgtime { file.attrs.mtime = chgtime }
+                            if let Some(crtime) = crtime   { file.attrs.crtime = crtime }
+                            // macOS only
+                            if let Some(flags) = flags     { file.attrs.flags = flags }
+                            if let Some(mode) = mode       { file.attrs.perm = mode as u16 }
                         }
-                        fragment.extend(size)
+                        if let Some(size) = size {
+                            let size = size as usize;
+                            if size == 0 { // Clear the file, called by the truncate syscall
+                                self.mut_fragment_from_ino(ino).map(|f| f.data = Backing::Buffer(Vec::new()));
+                            } else if size != self.fragment_from_ino(ino).map(Fragment::data_size).unwrap() { // Redim the file
+                                let mut fragment = self.mut_fragment_from_ino(ino).unwrap();
+                                if !matches!(fragment.data, Backing::Buffer(_)) {
+                                    fragment.data = Backing::Buffer(fragment.data().to_vec());
+                                }
+                                fragment.extend(size)
+                            }
+                            self
+                                .mut_fragment_from_ino(ino)
+                                .and_then(|f| f.mut_file_from_ino(ino))
+                                .unwrap().attrs.size = size as u64;
+                        }
+                        reply.attr(&TTL, &self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().attrs);
                     }
-                    self
-                        .mut_fragment_from_ino(ino)
-                        .and_then(|f| f.mut_file_from_ino(ino))
-                        .unwrap().attrs.size = size as u64;
-                    reply.attr(&TTL, &self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().attrs);
+                } else {
+                    warn!("\t{:?} does not exist", ino);
+                    reply.error(ENOENT);
                 }
-            } else {
-                warn!("\t{:?} does not exist", ino);
-                reply.error(ENOENT);
             }
         }
     }
+
 
     fn destroy(&mut self, _req: &Request) {}
 

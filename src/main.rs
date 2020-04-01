@@ -1,4 +1,5 @@
 use fuse::*;
+use std::collections::BTreeMap;
 
 use std::ffi::OsStr;
 use std::time::{SystemTime, Duration};
@@ -18,10 +19,15 @@ use log::*;
 use simplelog::*;
 
 const TTL: Duration = Duration::from_secs(1);
-const INO_DIR: u64 = 1;
+
 const FASTA_EXT: &str = "fa";
 const SEQ_EXT: &str = "seq";
 const EXTENSIONS: &[&str] = &["FA", "FASTA"];
+
+const ROOT_DIR: u64 = 1;
+const FASTA_DIR: u64 = 2;
+const SEQ_DIR: u64 = 3;
+const FIRST_INO: u64 = 5;
 
 #[derive(Debug, PartialEq, Clone)]
 enum FileClass {
@@ -31,7 +37,7 @@ enum FileClass {
 impl FileClass {
     fn readonly(&self) -> bool {
         match self {
-            Seq => { false }
+            FileClass::Seq => { false }
             _   => { true }
         }
     }
@@ -254,7 +260,7 @@ struct FustaSettings {
 struct FustaFS {
     fragments: Vec<Fragment>,
     metadata: fs::Metadata,
-    root_dir_attrs: FileAttr,
+    dir_attrs: BTreeMap<u64, FileAttr>,
     filename: String,
     settings: FustaSettings,
     current_ino: u64,
@@ -267,29 +273,37 @@ impl FustaFS {
         let mut r = FustaFS {
             fragments: Vec::new(),
             filename: String::new(),
-            root_dir_attrs: FileAttr {
-                ino: INO_DIR,
-                size: 0,
-                blocks: 0,
-                atime: std::time::SystemTime::now(),
-                mtime: std::time::SystemTime::now(),
-                ctime: std::time::SystemTime::now(),
-                crtime: std::time::SystemTime::now(),
-                kind: FileType::Directory,
-                perm: 0o775,
-                nlink: 1,
-                uid: unsafe { libc::geteuid() },
-                gid: unsafe { libc::getgid() },
-                rdev: 0,
-                flags: 0,
+            dir_attrs: maplit::btreemap! {
+                ROOT_DIR => FustaFS::make_dir_attrs(ROOT_DIR, 0o775),
+                SEQ_DIR => FustaFS::make_dir_attrs(SEQ_DIR, 0o775),
+                FASTA_DIR => FustaFS::make_dir_attrs(FASTA_DIR, 0o555),
             },
             metadata: metadata,
             settings: settings,
-            current_ino: 3,
+            current_ino: FIRST_INO,
         };
 
         r.read_fasta(filename);
         r
+    }
+
+    fn make_dir_attrs(ino: u64, perms: u16) -> FileAttr {
+        FileAttr {
+            ino: ino,
+            size: 0,
+            blocks: 0,
+            atime: std::time::SystemTime::now(),
+            mtime: std::time::SystemTime::now(),
+            ctime: std::time::SystemTime::now(),
+            crtime: std::time::SystemTime::now(),
+            kind: FileType::Directory,
+            perm: perms,
+            nlink: 1,
+            uid: unsafe { libc::geteuid() },
+            gid: unsafe { libc::getgid() },
+            rdev: 0,
+            flags: 0,
+        }
     }
 
     fn new_ino(&mut self) -> u64 {
@@ -382,27 +396,43 @@ impl FustaFS {
 
 impl Filesystem for FustaFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        if parent != INO_DIR  {
-            warn!("LOOKUP: parent {} does not exist", parent);
-            reply.error(ENOENT);
-        } else {
-            let name = name.to_str().unwrap();
-
-            if let Some(file) = self
-                .fragment_from_filename(name)
-                .and_then(|f| f.file_from_filename(name))
-            {
-                reply.entry(&TTL, &file.attrs, 0);
-            } else {
+        let name = name.to_str().unwrap();
+        match parent {
+            ROOT_DIR => {
+                match name {
+                    "fasta" => {
+                        reply.entry(&TTL, &self.dir_attrs[&FASTA_DIR], 0);
+                    },
+                    "seqs" => {
+                        reply.entry(&TTL, &self.dir_attrs[&SEQ_DIR], 0);
+                    },
+                    _ => {
+                        reply.error(ENOENT);
+                    }
+                }
+            },
+            SEQ_DIR | FASTA_DIR => {
+                if let Some(file) = self
+                    .fragment_from_filename(name)
+                    .and_then(|f| f.file_from_filename(name))
+                {
+                    reply.entry(&TTL, &file.attrs, 0);
+                } else {
+                    reply.error(ENOENT);
+                }
+            },
+            _ => {
+                warn!("LOOKUP: parent {} does not exist", parent);
                 reply.error(ENOENT);
             }
         }
-
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         match ino {
-            INO_DIR => reply.attr(&TTL, &self.root_dir_attrs),
+            ROOT_DIR => reply.attr(&TTL, &self.dir_attrs.get(&ROOT_DIR).unwrap()),
+            SEQ_DIR => reply.attr(&TTL, &self.dir_attrs.get(&SEQ_DIR).unwrap()),
+            FASTA_DIR => reply.attr(&TTL, &self.dir_attrs.get(&FASTA_DIR).unwrap()),
             _ => {
                 if let Some(file) = self
                     .fragment_from_ino(ino)
@@ -410,7 +440,7 @@ impl Filesystem for FustaFS {
                 {
                     reply.attr(&TTL, &file.attrs)
                 } else {
-                    warn!("\tino `{}` does not exist", ino);
+                    warn!("GETATTR: ino `{}` does not exist", ino);
                     reply.error(ENOENT)
                 }
             },
@@ -455,71 +485,112 @@ impl Filesystem for FustaFS {
     }
 
     fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
-        if ino != INO_DIR {
-            warn!("{} is not a directory", ino);
-            reply.error(ENOENT);
-            return;
+        match ino {
+            ROOT_DIR => {
+                let entries = maplit::btreemap! {
+                    ROOT_DIR  => (FileType::Directory, ".".to_owned()),
+                    45        => (FileType::Directory, "..".to_owned()), // TODO
+                    FASTA_DIR => (FileType::Directory, "fasta".to_owned()),
+                    SEQ_DIR   => (FileType::Directory, "seqs".to_owned()),
+                };
+                for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
+                    reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
+                }
+                reply.ok();
+            },
+            FASTA_DIR => {
+                let mut entries = maplit::btreemap! {
+                    FASTA_DIR  => (FileType::Directory, ".".to_owned()),
+                    ROOT_DIR => (FileType::Directory, "..".to_owned()),
+                };
+                for f in self.fragments.iter() {
+                    entries.insert(f.fasta_file.ino, (FileType::RegularFile, f.fasta_file.name.clone()));
+                }
+
+                for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
+                    reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
+                }
+                reply.ok();
+            },
+            SEQ_DIR => {
+                let mut entries = maplit::btreemap! {
+                    SEQ_DIR  => (FileType::Directory, ".".to_owned()),
+                    ROOT_DIR => (FileType::Directory, "..".to_owned()),
+                };
+                for f in self.fragments.iter() {
+                    entries.insert(f.seq_file.ino, (FileType::RegularFile, f.seq_file.name.clone()));
+                }
+
+                for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
+                    debug!("{} {} {:?}", ino, o, entry);
+                    reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
+                }
+                reply.ok();
+            },
+            _ => {
+                warn!("{} is not a directory", ino);
+                reply.error(ENOENT);
+            }
         }
 
-        let mut entries = maplit::btreemap! {
-            INO_DIR     => (FileType::Directory, ".".to_owned()),
-            INO_DIR + 1 => (FileType::Directory, "..".to_owned()),
-        };
-        for f in self.fragments.iter() {
-            entries.insert(f.fasta_file.ino, (FileType::RegularFile, f.fasta_file.name.clone()));
-            entries.insert(f.seq_file.ino, (FileType::RegularFile, f.seq_file.name.clone()));
-        }
-
-        for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
-            debug!("{} {} {:?}", ino, o, entry);
-            reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
-        }
-        reply.ok();
     }
 
     fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        if parent != INO_DIR {
-            warn!("{} is not a directory", parent);
-            reply.error(ENOENT);
-            return;
-        }
-
-        let name = name.to_str().unwrap();
-        if self
-            .fragment_from_filename(name)
-            .and_then(|f| f.file_from_filename(name))
-            .is_some() {
-                self.fragments.retain(|f| f.fasta_file.name != name && f.seq_file.name != name);
-                self.concretize(true);
-                reply.ok();
-            } else {
-                warn!("UNLINK: unknown file: `{:?}`", name);
+        match parent {
+            ROOT_DIR | SEQ_DIR | FASTA_DIR => {
+                let name = name.to_str().unwrap();
+                if self
+                    .fragment_from_filename(name)
+                    .and_then(|f| f.file_from_filename(name))
+                    .is_some() {
+                        self.fragments.retain(|f| f.fasta_file.name != name && f.seq_file.name != name);
+                        reply.ok();
+                    } else {
+                        warn!("UNLINK: unknown file: `{:?}`", name);
+                        reply.error(ENOENT);
+                    }
+            },
+            _ => {
+                warn!("UNLINK: parent {} does not exist", parent);
                 reply.error(ENOENT);
             }
+        }
     }
 
     fn mknod(&mut self, _req: &Request, parent: u64, name: &OsStr, _mode: u32, _rdev: u32, reply: ReplyEntry) {
-        warn!("Creating {:?}", name);
-        if parent != INO_DIR {
-            reply.error(ENOENT);
-            return;
+        match parent {
+            ROOT_DIR | SEQ_DIR | FASTA_DIR => {
+                warn!("MKNOD: writing in parent is forbidden");
+                reply.error(EACCES);
+            },
+            // ADD_DIR = {
+            // // TODO
+            // // 1. Check if FASTA
+            // // 2. Parse FASTA
+            // // 3. Check for conflicts
+            // // 4. Add new fragments to current fragments
+
+            // let name = name.to_str().unwrap();
+            // // If pathname already exists [...], this call fails with an EEXIST error.
+            // if self.fragment_from_filename(name).is_some() {
+            //     warn!("Cannot create `{:?}`, already exists", name);
+            //     reply.error(EEXIST);
+            //     return
+            // }
+
+            // let new_fragment = Fragment::with_empty_buffer(
+            //     name, self.new_ino(), self.new_ino(),
+            //     self.metadata.accessed().unwrap(), self.metadata.modified().unwrap(),
+            // );
+
+            // reply.entry(&TTL, &new_fragment.fasta_file.attrs, 0);
+            // self.fragments.push(new_fragment);
+            // },
+            _ => {
+                warn!("MKNOD: parent {} does not exist", parent);
+                reply.error(ENOENT);
+            }
         }
-
-        let name = name.to_str().unwrap();
-        // If pathname already exists [...], this call fails with an EEXIST error.
-        if self.fragment_from_filename(name).is_some() {
-            warn!("Cannot create `{:?}`, already exists", name);
-            reply.error(EEXIST);
-            return
-        }
-
-        let new_fragment = Fragment::with_empty_buffer(
-            name, self.new_ino(), self.new_ino(),
-            self.metadata.accessed().unwrap(), self.metadata.modified().unwrap(),
-        );
-
-        reply.entry(&TTL, &new_fragment.fasta_file.attrs, 0);
-        self.fragments.push(new_fragment);
     }
 
     fn write(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, data: &[u8], _flags: u32, reply: ReplyWrite) {
@@ -618,17 +689,29 @@ impl Filesystem for FustaFS {
 
     /// Rename a file.
     fn rename(&mut self, _req: &Request, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr, reply: ReplyEmpty) {
-        if parent != INO_DIR || newparent != INO_DIR {
-            error!("RENAME: Invalide parent or newparent");
-            reply.error(EINVAL);
-        } else {
-            if let Some(ref mut fragment) = self.mut_fragment_from_filename(name.to_str().unwrap()) {
-                fragment.id = newname.to_str().unwrap().to_string();
-                info!("RENAME: {:?} -> {:?}", name, newname);
-                self.concretize(true);
-                reply.ok()
-            } else {
-                warn!("\t{:?} does not exist", name);
+        match parent {
+            ROOT_DIR => {
+                warn!("RENAME: access forbidden to ROOT_DIR");
+                reply.error(EACCES);
+            }
+            SEQ_DIR | FASTA_DIR => {
+                if newparent != parent {
+                    error!("RENAME: Cannot move files oout of folder, please copy them");
+                    reply.error(EACCES);
+                } else {
+                    if let Some(ref mut fragment) = self.mut_fragment_from_filename(name.to_str().unwrap()) {
+                        fragment.id = newname.to_str().unwrap().to_string();
+                        info!("RENAME: {:?} -> {:?}", name, newname);
+                        self.concretize(true);
+                        reply.ok()
+                    } else {
+                        warn!("\t{:?} does not exist", name);
+                        reply.error(ENOENT);
+                    }
+                }
+            }
+            _ => {
+                warn!("RENAME: unknown parent {}", parent);
                 reply.error(ENOENT);
             }
         }

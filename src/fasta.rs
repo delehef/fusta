@@ -36,9 +36,9 @@ impl<T: Read> Iterator for FastaReader<T> {
             let len = line.len() + 1;
             self.current_offset += len;
 
-            if line.starts_with(">") {
+            if line.starts_with('>') {
                 if let Some(ref current_header) = self.current_header {
-                    let split = current_header.split(" ").collect::<Vec<_>>();
+                    let split = current_header.split(' ').collect::<Vec<_>>();
                     let r = Fragment {
                         id: split[0].to_string(),
                         name: if split.len() > 1 { Some(split[1..].join(" ")) } else { None },
@@ -60,7 +60,7 @@ impl<T: Read> Iterator for FastaReader<T> {
         }
 
         if let Some(ref current_header) = self.current_header {
-            let split = current_header.split(" ").collect::<Vec<_>>();
+            let split = current_header.split(' ').collect::<Vec<_>>();
             let r = Fragment {
                 id: split[0].to_string(),
                 name: if split.len() > 1 { Some(split[1..].join(" ")) } else { None },

@@ -1,11 +1,13 @@
 #![allow(clippy::redundant_field_names)]
 
+use anyhow::{Context, Result, anyhow, bail};
 use fuse::*;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use std::ffi::OsStr;
 use std::time::{SystemTime, Duration};
+use std::sync::mpsc::channel;
 use std::fs;
 use libc::*;
 use daemonize::*;
@@ -300,7 +302,7 @@ impl FustaFS {
     fn new_ino(&mut self) -> u64 {
         let r = self.current_ino;
         self.current_ino += 1;
-        debug!("New ino: {}", r);
+        trace!("New ino: {}", r);
         r
     }
 
@@ -651,7 +653,7 @@ impl Filesystem for FustaFS {
             }
             pending_fragment.data.splice(start .. end, data.iter().cloned());
             reply.written(data.len() as u32);
-            debug!("\tWriting to {}", name);
+            trace!("\tWriting to {}", name);
         } else {
             reply.error(ENOENT);
         }
@@ -665,17 +667,17 @@ impl Filesystem for FustaFS {
                crtime: Option<SystemTime>, chgtime: Option<SystemTime>, bkuptime: Option<SystemTime>,
                flags: Option<u32>,
                reply: ReplyAttr) {
-        info!("SETATTR");
-        debug!("mode       {:?}", mode);
-        debug!("gid        {:?}", gid);
-        debug!("uid        {:?}", uid);
-        debug!("size       {:?}", size);
-        debug!("atime      {:?}", atime);
-        debug!("mtime      {:?}", mtime);
-        debug!("bkuptime   {:?}", bkuptime);
-        debug!("chgtime    {:?}", chgtime);
-        debug!("crtime     {:?}", crtime);
-        debug!("flags      {:?}", flags);
+        trace!("SETATTR");
+        trace!("mode       {:?}", mode);
+        trace!("gid        {:?}", gid);
+        trace!("uid        {:?}", uid);
+        trace!("size       {:?}", size);
+        trace!("atime      {:?}", atime);
+        trace!("mtime      {:?}", mtime);
+        trace!("bkuptime   {:?}", bkuptime);
+        trace!("chgtime    {:?}", chgtime);
+        trace!("crtime     {:?}", crtime);
+        trace!("flags      {:?}", flags);
 
         match ino {
             ROOT_DIR  => { reply.error(EACCES) }
@@ -723,7 +725,7 @@ impl Filesystem for FustaFS {
                     .find(|(_, p)| p.attrs.ino == ino)
                 {
                     if let Some(size) = size {
-                        debug!("\tResizing {} @{}", name, size);
+                        trace!("\tResizing {} @{}", name, size);
                         pending_fragment.data.resize_with(size as usize, Default::default);
                         reply.attr(&TTL, &pending_fragment.attrs);
                     }
@@ -808,12 +810,12 @@ impl Filesystem for FustaFS {
         info!("RELEASE {}", ino);
         for pending in self.pending_appends.iter() {
             if pending.1.attrs.ino == ino {
-                debug!("RELEASE: {}", pending.0);
-                debug!("Dumping...");
+                trace!("RELEASE: {}", pending.0);
+                trace!("Dumping...");
                 let mut tmpfile = tempfile::tempfile().unwrap();
                 tmpfile.write_all(&pending.1.data).unwrap();
 
-                debug!("Parsing...");
+                trace!("Parsing...");
                 tmpfile.seek(SeekFrom::Start(0)).unwrap();
                 let fastas = FastaReader::new(&tmpfile).collect::<Vec<_>>();
 
@@ -872,7 +874,7 @@ struct RunEnvironment {
     mountpoint: std::path::PathBuf,
     created_mountpoint: bool,
 }
-fn main() {
+fn main() -> Result<()> {
     let args = App::new("fusta")
         .setting(AppSettings::ColoredHelp)
         .setting(AppSettings::ColorAuto)
@@ -925,7 +927,7 @@ fn main() {
     if args.is_present("daemon") {
         let mut log_file = std::env::temp_dir();
         log_file.push("fusta.log");
-        WriteLogger::new(log_level, log_config, std::fs::File::create(log_file).unwrap());
+        WriteLogger::new(log_level, log_config, std::fs::File::create(log_file)?);
 
         let mut pid_file = std::env::temp_dir();
         pid_file.push("fusta.pid");
@@ -933,19 +935,18 @@ fn main() {
         Daemonize::new()
             .pid_file(pid_file)
             .working_directory(std::env::current_dir().expect("Unable to read current directory"))
-            .start().unwrap();
+            .start()?;
     } else {
         TermLogger::init(log_level, log_config, TerminalMode::Mixed).expect("Unable to initialize logger");
     }
 
 
 
-    let fasta_file = value_t!(args, "FASTA", String).unwrap();
-    let mountpoint = value_t!(args, "mountpoint", String).unwrap();
+    let fasta_file = value_t!(args, "FASTA", String)?;
+    let mountpoint = value_t!(args, "mountpoint", String)?;
     let mut fuse_options: Vec<&OsStr> = vec![
         &OsStr::new("-o"), &OsStr::new("auto_unmount"),
         &OsStr::new("-o"), &OsStr::new("default_permissions"),
-        &OsStr::new("-o"), &OsStr::new("subtype"), &OsStr::new(&fasta_file),
     ];
     let settings = FustaSettings {
         mmap: args.is_present("mmap"),
@@ -960,42 +961,57 @@ fn main() {
     };
 
     if !env.mountpoint.exists() {
-        std::fs::create_dir(&env.mountpoint);
+        std::fs::create_dir(&env.mountpoint)?;
         env.created_mountpoint = true;
     }
     if !env.mountpoint.is_dir() {
-        error!("Mount point `{:?}` is not a directory", env.mountpoint);
-        std::process::exit(1);
+        bail!("mount point `{:?}` is not a directory", env.mountpoint);
     }
 
     if args.is_present("nonempty") {
         fuse_options.push(&OsStr::new("-o"));
         fuse_options.push(&OsStr::new("nonempty"));
     }
-    if !args.is_present("nonempty") && std::fs::read_dir(&env.mountpoint).unwrap().take(1).count() != 0 {
-        error!(
-            "Mount point {:?} is not empty. Use the -E flag if you want to mount in a non-empty directory.",
+    if !args.is_present("nonempty") && std::fs::read_dir(&env.mountpoint)?.take(1).count() != 0 {
+        bail!(
+            "mount point {:?} is not empty, use the -E flag to mount in a non-empty directory.",
             env.mountpoint
         );
-        std::process::exit(1);
     }
 
-    let cloned_env = env.clone();
-    ctrlc::set_handler(move || {
-        info!("Ctrl-C received, exiting.");
-        std::process::exit(0);
-    }).expect("Error setting Ctrl-C handler");
+    let (tx, rx) = channel();
 
-    fuse::mount(fs, &env.mountpoint, &fuse_options).unwrap();
-    cleanup(&env);
+
+    {
+        let tx_ctrlc = tx.clone();
+        ctrlc::set_handler(move || {
+            info!("Ctrl-C received, exiting.");
+            let _ = tx_ctrlc.send(());
+        })?;
+    }
+
+    {
+        let tx_fuse = tx.clone();
+        let env = env.clone();
+        let _ = std::thread::spawn(move || {
+            match fuse::mount(fs, &env.mountpoint, &fuse_options) {
+                Ok(()) => info!("Successfully mounted"),
+                _      => { error!("Unable to mount the FUSE filesystem"); std::process::exit(1); }
+            }
+            let _ = tx_fuse.send(());
+        });
+    }
+
+
+    rx.recv()?;
+    cleanup(&env)?;
+
+    Ok(())
 }
 
-fn cleanup(env: &RunEnvironment) {
-    info!("Cleaning up...");
+fn cleanup(env: &RunEnvironment) -> Result<()> {
     if env.created_mountpoint {
-        info!("Removing {:?}", env.mountpoint);
-
-        std::fs::remove_dir(&env.mountpoint).unwrap();
+        warn!("You can now safely remove the {:?} directory", env.mountpoint);
     }
-    info!("Done.");
+    Ok(())
 }

@@ -581,7 +581,7 @@ impl Filesystem for FustaFS {
                     return
                 }
 
-                info!("Creating pending append {}", name);
+                trace!("Creating pending append {}", name);
                 let attrs = FileAttr {
                     ino: self.new_ino(),
                     size: 0,
@@ -757,8 +757,9 @@ impl Filesystem for FustaFS {
                     let keys = self.fragments.iter().map(|f| f.id.clone()).collect::<Vec<_>>();
                     let mut newname = newname.to_str().unwrap().to_string();
                     let newname_path = std::path::Path::new(&newname);
+                    // Remove the artificial extension
                     if newname_path.extension().map(|ext| ext == SEQ_EXT).unwrap_or(false) {
-                        info!("Using {:?} for {}", newname_path.file_stem(), newname);
+                        trace!("Using {:?} for {}", newname_path.file_stem(), newname);
                         newname = newname_path.file_stem().unwrap().to_str().unwrap().to_string();
                     }
                     if keys.contains(&newname) && NO_REPLACE {
@@ -771,7 +772,7 @@ impl Filesystem for FustaFS {
                         }
                         if let Some(ref mut fragment) = self.mut_fragment_from_filename(name.to_str().unwrap()) {
                             fragment.id = newname.to_string();
-                            info!("RENAME: {:?} -> {:?}", name, newname);
+                            info!("Renaming {:?} -> {:?}", name, newname);
                             self.concretize();
                             reply.ok()
                         } else {
@@ -789,33 +790,33 @@ impl Filesystem for FustaFS {
     }
 
     fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
-        info!("FSYNC");
+        trace!("FSYNC");
         self.concretize();
         reply.ok();
     }
 
     fn fsyncdir (&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
-        info!("FSYNCDIR");
+        trace!("FSYNCDIR");
         self.concretize();
         reply.ok();
     }
 
     fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
-        info!("FLUSH");
+        trace!("FLUSH");
         self.concretize();
         reply.ok();
     }
 
     fn release(&mut self, _req: &Request, ino: u64, _fh: u64, _flags: u32, _lock_owner: u64, _flush: bool, reply: ReplyEmpty) {
-        info!("RELEASE {}", ino);
+        trace!("RELEASE {}", ino);
         for pending in self.pending_appends.iter() {
             if pending.1.attrs.ino == ino {
                 trace!("RELEASE: {}", pending.0);
-                trace!("Dumping...");
+                info!("Dumping...");
                 let mut tmpfile = tempfile::tempfile().unwrap();
                 tmpfile.write_all(&pending.1.data).unwrap();
 
-                trace!("Parsing...");
+                info!("Parsing...");
                 tmpfile.seek(SeekFrom::Start(0)).unwrap();
                 let fastas = FastaReader::new(&tmpfile).collect::<Vec<_>>();
 
@@ -855,7 +856,7 @@ impl Filesystem for FustaFS {
 
     /// Get file system statistics.
     fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
-        info!("STATFS");
+        trace!("STATFS");
         reply.statfs(
             0,                           // blocks
             0,                           // bfree
@@ -995,13 +996,12 @@ fn main() -> Result<()> {
         let env = env.clone();
         let _ = std::thread::spawn(move || {
             match fuse::mount(fs, &env.mountpoint, &fuse_options) {
-                Ok(()) => info!("Successfully mounted"),
+                Ok(()) => {},
                 _      => { error!("Unable to mount the FUSE filesystem"); std::process::exit(1); }
             }
             let _ = tx_fuse.send(());
         });
     }
-
 
     rx.recv()?;
     cleanup(&env)?;

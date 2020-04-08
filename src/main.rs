@@ -158,9 +158,9 @@ impl Fragment {
         match &self.data {
             Backing::File(filename, start, _) => {
                 let mut buffer = vec![0u8; self.data_size() as usize];
-                let mut f = fs::File::open(&filename).unwrap();
-                f.seek(SeekFrom::Start(*start as u64)).unwrap();
-                let _ = f.read(&mut buffer).unwrap();
+                let mut f = fs::File::open(&filename).expect(&format!("Unable to open `{}`", filename));
+                f.seek(SeekFrom::Start(*start as u64)).expect(&format!("Unable to seek in `{}`", filename));
+                f.read(&mut buffer).expect(&format!("Unable to read from `{}`", filename));
                 buffer.into_boxed_slice()
             },
             Backing::Buffer(ref b) => {
@@ -176,9 +176,9 @@ impl Fragment {
         match &self.data {
             Backing::File(filename, start, _) => {
                 let mut buffer = vec![0u8; size as usize];
-                let mut f = fs::File::open(&filename).unwrap();
-                f.seek(SeekFrom::Start(*start as u64 + offset as u64)).unwrap();
-                let _ = f.read(&mut buffer).unwrap();
+                let mut f = fs::File::open(&filename).expect(&format!("Unable to open `{}`", filename));
+                f.seek(SeekFrom::Start(*start as u64 + offset as u64)).expect(&format!("Unable to seek in `{}`", filename));
+                f.read(&mut buffer).expect(&format!("Unable to read from `{}`", filename));
                 buffer.into_boxed_slice()
             },
             Backing::Buffer(ref b) => {
@@ -308,7 +308,7 @@ impl FustaFS {
 
     fn read_fasta(&mut self, filename: &str) {
         info!("Reading {}...", filename);
-        let fasta_file = fs::File::open(filename).unwrap();
+        let fasta_file = fs::File::open(filename).expect(&format!("Unable to open `{}`", filename));
         let fragments = FastaReader::new(fasta_file).collect::<Vec<_>>();
         info!("Done.");
         let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
@@ -316,7 +316,7 @@ impl FustaFS {
         keys.dedup();
         if keys.len() != fragments.len() {panic!("Duplicated keys")}
 
-        let file = fs::File::open(filename).unwrap();
+        let file = fs::File::open(filename).expect(&format!("Unable to open `{}`", filename));
         self.filename = filename.to_owned();
 
         self.fragments = fragments.iter()
@@ -348,20 +348,20 @@ impl FustaFS {
         let tmp_filename = format!("{}#fusta#", &self.filename);
         { // Scope to ensure the tmp file is correctly closed
             trace!("Writing fragments");
-            let mut tmp_file = fs::File::create(&tmp_filename).unwrap();
+            let mut tmp_file = fs::File::create(&tmp_filename).expect(&format!("Unable to create `{}`", tmp_filename));
             for fragment in self.fragments.iter_mut() {
                 trace!("Writing {}", fragment.id);
-                tmp_file.write_all(fragment.label().as_bytes()).unwrap();
+                tmp_file.write_all(fragment.label().as_bytes()).expect(&format!("Unable to write to `{}`", tmp_filename));
                 index += fragment.label().as_bytes().len();
                 last_start = index;
-                tmp_file.write_all(&fragment.data()).unwrap();
+                tmp_file.write_all(&fragment.data()).expect(&format!("Unable to write to `{}`", tmp_filename));
                 index += fragment.data().len();
 
                 fragment.data = Backing::File(self.filename.clone(), last_start, index);
             }
         }
         trace!("Renaming {} to {}", tmp_filename, &self.filename);
-        fs::rename(tmp_filename, &self.filename).unwrap();
+        fs::rename(&tmp_filename, &self.filename).expect(&format!("Unable to rename `{}` to `{}`", &tmp_filename, &self.filename));
         error!("========== CONCRETIZING ========")
     }
 
@@ -442,8 +442,14 @@ impl Filesystem for FustaFS {
 
     fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, size: u32, reply: ReplyData) {
         if self.fragment_from_ino(ino).is_some() {
-            let fragment = self.mut_fragment_from_ino(ino).unwrap();
-            match fragment.file_from_ino(ino).unwrap().class {
+            let fragment = match self.mut_fragment_from_ino(ino) {
+                Some(f) => f,
+                _ => {
+                    error!("No fragment linked to ino {}", ino);
+                    return;
+                }
+            };
+            match fragment.file_from_ino(ino).expect("No file linked to this fragment").class {
                 FileClass::Fasta(_) => {
                     let label_size = fragment.label_size() as i64;
                     if offset > label_size as i64 {
@@ -452,7 +458,7 @@ impl Filesystem for FustaFS {
                         let end = offset as usize + size as usize;
                         let label = fragment.label();
                         let data_chunk = fragment.chunk(0, std::cmp::min(fragment.data_size() as u32, size));
-                        match fragment.mut_file_from_ino(ino).unwrap().class {
+                        match fragment.mut_file_from_ino(ino).expect("No file linked to this fragment").class {
                             FileClass::Fasta(ref mut header_buffer) => {
                                 if end > header_buffer.len() {
                                     *header_buffer = label.as_bytes().iter()
@@ -813,11 +819,11 @@ impl Filesystem for FustaFS {
             if pending.1.attrs.ino == ino {
                 trace!("RELEASE: {}", pending.0);
                 info!("Dumping...");
-                let mut tmpfile = tempfile::tempfile().unwrap();
-                tmpfile.write_all(&pending.1.data).unwrap();
+                let mut tmpfile = tempfile::tempfile().expect(&format!("Unable to create a temporary file"));
+                tmpfile.write_all(&pending.1.data).expect(&format!("Unable to write to temporary file"));
 
                 info!("Parsing...");
-                tmpfile.seek(SeekFrom::Start(0)).unwrap();
+                tmpfile.seek(SeekFrom::Start(0)).expect(&format!("Unable to seek in temporary file"));
                 let fastas = FastaReader::new(&tmpfile).collect::<Vec<_>>();
 
                 let new_keys = fastas.iter().map(|f| &f.id).collect::<Vec<_>>();
@@ -833,7 +839,7 @@ impl Filesystem for FustaFS {
                     fastas.iter()
                         .filter_map(|fasta| {
                             let mut seq = vec![0u8; fasta.pos.1 - fasta.pos.0];
-                            tmpfile.seek(SeekFrom::Start(fasta.pos.0 as u64)).unwrap();
+                            tmpfile.seek(SeekFrom::Start(fasta.pos.0 as u64)).expect(&format!("Unable to seek in temporary file"));
                             let _ = tmpfile.read(&mut seq).unwrap();
 
                             if old_keys.contains(&fasta.id) && NO_REPLACE {

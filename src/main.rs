@@ -420,13 +420,25 @@ impl FustaFS {
     }
 
     fn make_info_buffer(&mut self) {
+        use ascii_table::*;
+        use num_format::*;
+
+        let mut table = AsciiTable::default();
+        table.columns.insert(0, Column::with_header("ID"));
+        table.columns.insert(1, Column::with_header("Infos"));
+        table.columns.insert(2, Column::with_header("Length (bp)"));
+
         error!("Making INFO BUFFER");
         let header = format!("{} - {} sequences", &self.filename, self.fragments.len());
         let fragments_infos = self.fragments
             .iter()
-            .map(|f| format!("{} {} - {} bp", f.id, f.name.as_ref().unwrap_or(&"".to_string()), f.data_size()))
+            .map(|f| vec![
+                f.id.to_owned(),
+                f.name.as_ref().unwrap_or(&"".to_string()).to_owned(),
+                f.data_size().to_formatted_string(&Locale::en)
+            ])
             .collect::<Vec<_>>();
-        self.info_file_buffer = format!("{}\n{}\n{}\n", header, "=".repeat(header.len()), &fragments_infos.join("\n"));
+        self.info_file_buffer = format!("{}\n{}\n{}", header, "=".repeat(header.len()), &table.format(&fragments_infos));
         self.file_attrs.get_mut(&INFO_FILE).unwrap().size = self.info_file_buffer.as_bytes().len() as u64;
     }
 
@@ -898,7 +910,7 @@ impl Filesystem for FustaFS {
     }
 
     fn release(&mut self, _req: &Request, ino: u64, _fh: u64, _flags: u32, _lock_owner: u64, _flush: bool, reply: ReplyEmpty) {
-        trace!("RELEASE {}", ino);
+        debug!("RELEASE {}", ino);
         match ino {
             _ if self.is_writeable(ino) => {
                 for pending in self.pending_appends.iter() {

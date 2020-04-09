@@ -15,4 +15,6 @@ ctrlc = { version = "3.0", features = ["termination"] }
 daemonize = "0.4"
 maplit = "1.0"
 tempfile = "3"
-anyhow = "1.0"
+anyhow = "1"
+ascii_table = "3"
+num-format = "0.4"

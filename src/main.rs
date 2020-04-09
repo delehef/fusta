@@ -429,6 +429,18 @@ impl FustaFS {
         self.info_file_buffer = format!("{}\n{}\n{}", header, "=".repeat(header.len()), &fragments_infos.join("\n"));
         self.file_attrs.get_mut(&INFO_FILE).unwrap().size = self.info_file_buffer.as_bytes().len() as u64;
     }
+
+    fn is_a_fasta_file(&self, ino: u64) -> bool {
+        self.fragments.iter().find(|f| f.fasta_file.ino == ino).is_some()
+    }
+
+    fn is_a_seq_file(&self, ino: u64) -> bool {
+        self.fragments.iter().find(|f| f.seq_file.ino == ino).is_some()
+    }
+
+    fn is_an_append_file(&self, ino: u64) -> bool {
+        self.pending_appends.iter().find(|p| p.1.attrs.ino == ino).is_some()
+    }
 }
 
 
@@ -877,55 +889,60 @@ impl Filesystem for FustaFS {
 
     fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
         trace!("FLUSH");
-        self.concretize();
+        // self.concretize();
         reply.ok();
     }
 
     fn release(&mut self, _req: &Request, ino: u64, _fh: u64, _flags: u32, _lock_owner: u64, _flush: bool, reply: ReplyEmpty) {
         trace!("RELEASE {}", ino);
-        for pending in self.pending_appends.iter() {
-            if pending.1.attrs.ino == ino {
-                trace!("RELEASE: {}", pending.0);
-                info!("Dumping...");
-                let mut tmpfile = tempfile::tempfile().expect(&format!("Unable to create a temporary file"));
-                tmpfile.write_all(&pending.1.data).expect(&format!("Unable to write to temporary file"));
+        match ino {
+            _ if self.is_a_seq_file(ino) || self.is_an_append_file(ino) => {
+                for pending in self.pending_appends.iter() {
+                    if pending.1.attrs.ino == ino {
+                        trace!("RELEASE: {}", pending.0);
+                        info!("Dumping...");
+                        let mut tmpfile = tempfile::tempfile().expect(&format!("Unable to create a temporary file"));
+                        tmpfile.write_all(&pending.1.data).expect(&format!("Unable to write to temporary file"));
 
-                info!("Parsing...");
-                tmpfile.seek(SeekFrom::Start(0)).expect(&format!("Unable to seek in temporary file"));
-                let fastas = FastaReader::new(&tmpfile).collect::<Vec<_>>();
+                        info!("Parsing...");
+                        tmpfile.seek(SeekFrom::Start(0)).expect(&format!("Unable to seek in temporary file"));
+                        let fastas = FastaReader::new(&tmpfile).collect::<Vec<_>>();
 
-                let new_keys = fastas.iter().map(|f| &f.id).collect::<Vec<_>>();
-                let old_keys = self.fragments
-                    .iter()
-                    .map(|f| &f.id)
-                    .cloned()
-                    .collect::<Vec<_>>();
+                        let new_keys = fastas.iter().map(|f| &f.id).collect::<Vec<_>>();
+                        let old_keys = self.fragments
+                            .iter()
+                            .map(|f| &f.id)
+                            .cloned()
+                            .collect::<Vec<_>>();
 
-                if !NO_REPLACE { self.fragments.retain(|f| !new_keys.contains(&&f.id)) }
+                        if !NO_REPLACE { self.fragments.retain(|f| !new_keys.contains(&&f.id)) }
 
-                self.fragments.extend(
-                    fastas.iter()
-                        .filter_map(|fasta| {
-                            let mut seq = vec![0u8; fasta.pos.1 - fasta.pos.0];
-                            tmpfile.seek(SeekFrom::Start(fasta.pos.0 as u64)).expect(&format!("Unable to seek in temporary file"));
-                            let _ = tmpfile.read(&mut seq).unwrap();
+                        self.fragments.extend(
+                            fastas.iter()
+                                .filter_map(|fasta| {
+                                    let mut seq = vec![0u8; fasta.pos.1 - fasta.pos.0];
+                                    tmpfile.seek(SeekFrom::Start(fasta.pos.0 as u64)).expect(&format!("Unable to seek in temporary file"));
+                                    let _ = tmpfile.read(&mut seq).unwrap();
 
-                            if old_keys.contains(&fasta.id) && NO_REPLACE {
-                                error!("Skipping {}, already existing", &fasta.id);
-                                None
-                            } else {
-                                Some(Fragment::new(
-                                    &fasta.id, &fasta.name,
-                                    Backing::Buffer(seq),
-                                    pending.1.seq_ino, pending.1.fasta_ino,
-                                    pending.1.attrs.atime, pending.1.attrs.mtime
-                                ))
-                            }
-                        }))
+                                    if old_keys.contains(&fasta.id) && NO_REPLACE {
+                                        error!("Skipping {}, already existing", &fasta.id);
+                                        None
+                                    } else {
+                                        Some(Fragment::new(
+                                            &fasta.id, &fasta.name,
+                                            Backing::Buffer(seq),
+                                            pending.1.seq_ino, pending.1.fasta_ino,
+                                            pending.1.attrs.atime, pending.1.attrs.mtime
+                                        ))
+                                    }
+                                }))
+                    }
+                }
+                self.concretize();
             }
+            _ => { debug!("Not a writeable file; ignoring") }
         }
         reply.ok();
-        self.concretize();
     }
 
     /// Get file system statistics.

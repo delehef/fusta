@@ -426,7 +426,7 @@ impl FustaFS {
             .iter()
             .map(|f| format!("{} {} - {} bp", f.id, f.name.as_ref().unwrap_or(&"".to_string()), f.data_size()))
             .collect::<Vec<_>>();
-        self.info_file_buffer = format!("{}\n{}\n{}", header, "=".repeat(header.len()), &fragments_infos.join("\n"));
+        self.info_file_buffer = format!("{}\n{}\n{}\n", header, "=".repeat(header.len()), &fragments_infos.join("\n"));
         self.file_attrs.get_mut(&INFO_FILE).unwrap().size = self.info_file_buffer.as_bytes().len() as u64;
     }
 

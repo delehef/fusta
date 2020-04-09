@@ -11,6 +11,7 @@ use std::sync::mpsc::channel;
 use std::fs;
 use libc::*;
 use daemonize::*;
+use maplit::*;
 
 use std::io::SeekFrom;
 use std::io::prelude::*;
@@ -28,12 +29,20 @@ const FASTA_EXT: &str = "fa";
 const SEQ_EXT: &str = "seq";
 const EXTENSIONS: &[&str] = &["FA", "FASTA"];
 
+// Virtual directories
 const ROOT_DIR: u64   = 1;
 const FASTA_DIR: u64  = 2;
 const SEQ_DIR: u64    = 3;
 const APPEND_DIR: u64 = 4;
-const FIRST_INO: u64  = 10;
 
+// Pure virtual files
+const INFO_FILE: u64  = 10;
+const INFO_FILE_NAME: &str = "infos.txt";
+
+// First free ino
+const FIRST_INO: u64  = 20;
+
+// Set to true to allow for sequence overwriting
 const NO_REPLACE: bool = false;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -250,11 +259,14 @@ struct FustaFS {
     fragments: Vec<Fragment>,
     metadata: fs::Metadata,
     dir_attrs: BTreeMap<u64, FileAttr>,
+    file_attrs: BTreeMap<u64, FileAttr>,
     filename: String,
     settings: FustaSettings,
     current_ino: u64,
 
     pending_appends: HashMap<String, PendingAppend>,
+
+    info_file_buffer: String,
 }
 
 
@@ -264,16 +276,22 @@ impl FustaFS {
         let mut r = FustaFS {
             fragments: Vec::new(),
             filename: String::new(),
-            dir_attrs: maplit::btreemap! {
+            dir_attrs: btreemap! {
+                // Virtual folders
                 ROOT_DIR   => FustaFS::make_dir_attrs(ROOT_DIR, 0o775),
                 SEQ_DIR    => FustaFS::make_dir_attrs(SEQ_DIR, 0o775),
                 FASTA_DIR  => FustaFS::make_dir_attrs(FASTA_DIR, 0o555),
                 APPEND_DIR => FustaFS::make_dir_attrs(APPEND_DIR, 0o775),
             },
+            file_attrs: btreemap! {
+                // Pure virtual files
+                INFO_FILE  => FustaFS::make_file_attrs(INFO_FILE, 0o444),
+            },
             metadata: metadata,
             settings: settings,
             current_ino: FIRST_INO,
             pending_appends: HashMap::new(),
+            info_file_buffer: String::new(),
         };
 
         r.read_fasta(filename);
@@ -290,6 +308,25 @@ impl FustaFS {
             ctime: std::time::SystemTime::now(),
             crtime: std::time::SystemTime::now(),
             kind: FileType::Directory,
+            perm: perms,
+            nlink: 1,
+            uid: unsafe { libc::geteuid() },
+            gid: unsafe { libc::getgid() },
+            rdev: 0,
+            flags: 0,
+        }
+    }
+
+    fn make_file_attrs(ino: u64, perms: u16) -> FileAttr {
+        FileAttr {
+            ino: ino,
+            size: 0,
+            blocks: 0,
+            atime: std::time::SystemTime::now(),
+            mtime: std::time::SystemTime::now(),
+            ctime: std::time::SystemTime::now(),
+            crtime: std::time::SystemTime::now(),
+            kind: FileType::RegularFile,
             perm: perms,
             nlink: 1,
             uid: unsafe { libc::geteuid() },
@@ -340,6 +377,7 @@ impl FustaFS {
                 )
             })
             .collect::<Vec<_>>();
+        self.make_info_buffer();
     }
 
     fn concretize(&mut self) {
@@ -380,6 +418,17 @@ impl FustaFS {
     fn mut_fragment_from_filename(&mut self, name: &str) -> Option<&mut Fragment> {
         self.fragments.iter_mut().find(|f| f.fasta_file.name == name || f.seq_file.name == name)
     }
+
+    fn make_info_buffer(&mut self) {
+        error!("Making INFO BUFFER");
+        let header = format!("{} - {} sequences", &self.filename, self.fragments.len());
+        let fragments_infos = self.fragments
+            .iter()
+            .map(|f| format!("{} {} - {} bp", f.id, f.name.as_ref().unwrap_or(&"".to_string()), f.data_size()))
+            .collect::<Vec<_>>();
+        self.info_file_buffer = format!("{}\n{}\n{}", header, "=".repeat(header.len()), &fragments_infos.join("\n"));
+        self.file_attrs.get_mut(&INFO_FILE).unwrap().size = self.info_file_buffer.as_bytes().len() as u64;
+    }
 }
 
 
@@ -398,6 +447,9 @@ impl Filesystem for FustaFS {
                     "append" => {
                         reply.entry(&TTL, &self.dir_attrs[&APPEND_DIR], 0);
                     },
+                    INFO_FILE_NAME => {
+                        reply.entry(&TTL, &self.file_attrs[&INFO_FILE], 0);
+                    }
                     _ => {
                         reply.error(ENOENT);
                     }
@@ -422,10 +474,12 @@ impl Filesystem for FustaFS {
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         match ino {
-            ROOT_DIR   => reply.attr(&TTL, &self.dir_attrs.get(&ROOT_DIR).unwrap()),
-            SEQ_DIR    => reply.attr(&TTL, &self.dir_attrs.get(&SEQ_DIR).unwrap()),
-            APPEND_DIR => reply.attr(&TTL, &self.dir_attrs.get(&APPEND_DIR).unwrap()),
-            FASTA_DIR  => reply.attr(&TTL, &self.dir_attrs.get(&FASTA_DIR).unwrap()),
+            ROOT_DIR | SEQ_DIR | APPEND_DIR | FASTA_DIR => {
+                reply.attr(&TTL, &self.dir_attrs.get(&ino).unwrap())
+            }
+            INFO_FILE => {
+                reply.attr(&TTL, &self.file_attrs.get(&ino).unwrap())
+            }
             _          => {
                 if let Some(file) = self
                     .fragment_from_ino(ino)
@@ -441,57 +495,69 @@ impl Filesystem for FustaFS {
     }
 
     fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, size: u32, reply: ReplyData) {
-        if self.fragment_from_ino(ino).is_some() {
-            let fragment = match self.mut_fragment_from_ino(ino) {
-                Some(f) => f,
-                _ => {
-                    error!("No fragment linked to ino {}", ino);
-                    return;
-                }
-            };
-            match fragment.file_from_ino(ino).expect("No file linked to this fragment").class {
-                FileClass::Fasta(_) => {
-                    let label_size = fragment.label_size() as i64;
-                    if offset > label_size as i64 {
-                        reply.data(&fragment.chunk(offset - label_size, size))
-                    } else {
-                        let end = offset as usize + size as usize;
-                        let label = fragment.label();
-                        let data_chunk = fragment.chunk(0, std::cmp::min(fragment.data_size() as u32, size));
-                        match fragment.mut_file_from_ino(ino).expect("No file linked to this fragment").class {
-                            FileClass::Fasta(ref mut header_buffer) => {
-                                if end > header_buffer.len() {
-                                    *header_buffer = label.as_bytes().iter()
-                                        .chain(data_chunk.iter())
-                                        .cloned()
-                                        .take(end as usize)
-                                        .collect::<Vec<_>>();
+        debug!("READING {}", ino);
+        match ino {
+            INFO_FILE => {
+                self.make_info_buffer();
+                let start = offset as usize;
+                let end = std::cmp::min(start + size as usize, self.info_file_buffer.len());
+                reply.data(&self.info_file_buffer.as_bytes()[start .. end]);
+            },
+            _ => {
+                if self.fragment_from_ino(ino).is_some() {
+                    let fragment = match self.mut_fragment_from_ino(ino) {
+                        Some(f) => f,
+                        _ => {
+                            error!("No fragment linked to ino {}", ino);
+                            return;
+                        }
+                    };
+                    match fragment.file_from_ino(ino).expect("No file linked to this fragment").class {
+                        FileClass::Fasta(_) => {
+                            let label_size = fragment.label_size() as i64;
+                            if offset > label_size as i64 {
+                                reply.data(&fragment.chunk(offset - label_size, size))
+                            } else {
+                                let end = offset as usize + size as usize;
+                                let label = fragment.label();
+                                let data_chunk = fragment.chunk(0, std::cmp::min(fragment.data_size() as u32, size));
+                                match fragment.mut_file_from_ino(ino).expect("No file linked to this fragment").class {
+                                    FileClass::Fasta(ref mut header_buffer) => {
+                                        if end > header_buffer.len() {
+                                            *header_buffer = label.as_bytes().iter()
+                                                .chain(data_chunk.iter())
+                                                .cloned()
+                                                .take(end as usize)
+                                                .collect::<Vec<_>>();
+                                        }
+                                        reply.data(&header_buffer[offset as usize .. std::cmp::min(end, header_buffer.len())]);
+                                    }
+                                    _ => { panic!("WTF") }
                                 }
-                                reply.data(&header_buffer[offset as usize .. std::cmp::min(end, header_buffer.len())]);
                             }
-                            _ => { panic!("WTF") }
+                        }
+                        FileClass::Seq => {
+                            reply.data(&fragment.chunk(offset, size))
                         }
                     }
-                }
-                FileClass::Seq => {
-                    reply.data(&fragment.chunk(offset, size))
+                } else {
+                    warn!("READ: {} is not a file", ino);
+                    reply.error(ENOENT);
                 }
             }
-        } else {
-            warn!("READ: {} is not a file", ino);
-            reply.error(ENOENT);
         }
     }
 
     fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
         match ino {
             ROOT_DIR => {
-                let entries = maplit::btreemap! {
+                let entries = btreemap! {
                     ROOT_DIR   => (FileType::Directory, ".".to_owned()),
                     45         => (FileType::Directory, "..".to_owned()), // TODO
                     FASTA_DIR  => (FileType::Directory, "fasta".to_owned()),
                     SEQ_DIR    => (FileType::Directory, "seqs".to_owned()),
                     APPEND_DIR => (FileType::Directory, "append".to_owned()),
+                    INFO_FILE  => (FileType::RegularFile, INFO_FILE_NAME.to_owned()),
                 };
                 for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
                     reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
@@ -499,7 +565,7 @@ impl Filesystem for FustaFS {
                 reply.ok();
             },
             FASTA_DIR => {
-                let mut entries = maplit::btreemap! {
+                let mut entries = btreemap! {
                     FASTA_DIR  => (FileType::Directory, ".".to_owned()),
                     ROOT_DIR => (FileType::Directory, "..".to_owned()),
                 };
@@ -513,7 +579,7 @@ impl Filesystem for FustaFS {
                 reply.ok();
             },
             SEQ_DIR => {
-                let mut entries = maplit::btreemap! {
+                let mut entries = btreemap! {
                     SEQ_DIR  => (FileType::Directory, ".".to_owned()),
                     ROOT_DIR => (FileType::Directory, "..".to_owned()),
                 };
@@ -527,7 +593,7 @@ impl Filesystem for FustaFS {
                 reply.ok();
             },
             APPEND_DIR => {
-                let entries = maplit::btreemap! {
+                let entries = btreemap! {
                     APPEND_DIR => (FileType::Directory, ".".to_owned()),
                     ROOT_DIR   => (FileType::Directory, "..".to_owned()),
                 };
@@ -546,7 +612,10 @@ impl Filesystem for FustaFS {
 
     fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         match parent {
-            ROOT_DIR | SEQ_DIR | FASTA_DIR => {
+            ROOT_DIR => {
+                warn!("UNLINK: cannot remove `{:?}`", name);
+            },
+            SEQ_DIR | FASTA_DIR => {
                 let name = name.to_str().unwrap();
                 if self
                     .fragment_from_filename(name)
@@ -686,9 +755,8 @@ impl Filesystem for FustaFS {
         trace!("flags      {:?}", flags);
 
         match ino {
-            ROOT_DIR  => { reply.error(EACCES) }
-            SEQ_DIR   => { reply.error(EACCES) }
-            FASTA_DIR => { reply.error(EACCES) }
+            ROOT_DIR | SEQ_DIR | FASTA_DIR => { reply.error(EACCES) }
+            INFO_FILE => { reply.error(EACCES) }
             _ => {
                 if self.fragment_from_ino(ino).is_some() {
                     if self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().class.readonly() {

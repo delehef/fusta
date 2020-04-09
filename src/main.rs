@@ -430,16 +430,20 @@ impl FustaFS {
         self.file_attrs.get_mut(&INFO_FILE).unwrap().size = self.info_file_buffer.as_bytes().len() as u64;
     }
 
-    fn is_a_fasta_file(&self, ino: u64) -> bool {
+    fn is_fasta_file(&self, ino: u64) -> bool {
         self.fragments.iter().find(|f| f.fasta_file.ino == ino).is_some()
     }
 
-    fn is_a_seq_file(&self, ino: u64) -> bool {
+    fn is_seq_file(&self, ino: u64) -> bool {
         self.fragments.iter().find(|f| f.seq_file.ino == ino).is_some()
     }
 
-    fn is_an_append_file(&self, ino: u64) -> bool {
+    fn is_append_file(&self, ino: u64) -> bool {
         self.pending_appends.iter().find(|p| p.1.attrs.ino == ino).is_some()
+    }
+
+    fn is_writeable(&self, ino: u64) -> bool {
+        self.is_append_file(ino) || self.is_seq_file(ino)
     }
 }
 
@@ -889,14 +893,14 @@ impl Filesystem for FustaFS {
 
     fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
         trace!("FLUSH");
-        // self.concretize();
+        self.concretize();
         reply.ok();
     }
 
     fn release(&mut self, _req: &Request, ino: u64, _fh: u64, _flags: u32, _lock_owner: u64, _flush: bool, reply: ReplyEmpty) {
         trace!("RELEASE {}", ino);
         match ino {
-            _ if self.is_a_seq_file(ino) || self.is_an_append_file(ino) => {
+            _ if self.is_writeable(ino) => {
                 for pending in self.pending_appends.iter() {
                     if pending.1.attrs.ino == ino {
                         trace!("RELEASE: {}", pending.0);

@@ -43,7 +43,7 @@ const INFO_FILE_NAME: &str = "infos.txt";
 const FIRST_INO: u64  = 20;
 
 // Set to true to allow for sequence overwriting
-const NO_REPLACE: bool = false;
+const NO_OVERWRITE: bool = false;
 
 #[derive(Debug, PartialEq, Clone)]
 enum FileClass {
@@ -141,6 +141,19 @@ impl Fragment {
                 0o664, data_size, FileClass::Seq,
                 accessed, modified),
         }
+    }
+
+    fn rename(&mut self, new_id: &str) {
+        self.id = new_id.to_string();
+        self.refresh_virtual_files();
+    }
+
+    fn refresh_virtual_files(&mut self) {
+        self.fasta_file.name = format!("{}.{}", self.id, FASTA_EXT);
+        self.fasta_file.attrs.size = (self.label_size() + self.data_size()) as u64;
+
+        self.seq_file.name = format!("{}.{}", self.id, SEQ_EXT);
+        self.seq_file.attrs.size = self.data_size() as u64;
     }
 
     fn label_size(&self) -> usize {
@@ -267,6 +280,8 @@ struct FustaFS {
     pending_appends: HashMap<String, PendingAppend>,
 
     info_file_buffer: String,
+
+    dirty: bool,
 }
 
 
@@ -292,6 +307,7 @@ impl FustaFS {
             current_ino: FIRST_INO,
             pending_appends: HashMap::new(),
             info_file_buffer: String::new(),
+            dirty: false,
         };
 
         r.read_fasta(filename);
@@ -381,6 +397,12 @@ impl FustaFS {
     }
 
     fn concretize(&mut self) {
+        if !self.dirty {
+            debug!("CONCRETIZE: nothing to do");
+            return;
+        }
+
+        warn!("========== CONCRETIZING ========");
         let mut index = 0;
         let mut last_start;
         let tmp_filename = format!("{}#fusta#", &self.filename);
@@ -396,11 +418,18 @@ impl FustaFS {
                 index += fragment.data().len();
 
                 fragment.data = Backing::File(self.filename.clone(), last_start, index);
+                fragment.refresh_virtual_files();
             }
         }
         trace!("Renaming {} to {}", tmp_filename, &self.filename);
         fs::rename(&tmp_filename, &self.filename).expect(&format!("Unable to rename `{}` to `{}`", &tmp_filename, &self.filename));
-        error!("========== CONCRETIZING ========")
+        warn!("========== DONE ========");
+        self.dirty = false;
+    }
+
+
+    fn fragment_from_id(&self, id: &str) -> Option<&Fragment> {
+        self.fragments.iter().find(|f| f.id == id)
     }
 
     fn fragment_from_ino(&self, ino: u64) -> Option<&Fragment> {
@@ -428,7 +457,7 @@ impl FustaFS {
         table.columns.insert(1, Column::with_header("Infos"));
         table.columns.insert(2, Column::with_header("Length (bp)"));
 
-        error!("Making INFO BUFFER");
+        trace!("Making INFO BUFFER");
         let header = format!("{} - {} sequences", &self.filename, self.fragments.len());
         let fragments_infos = self.fragments
             .iter()
@@ -508,7 +537,7 @@ impl Filesystem for FustaFS {
             INFO_FILE => {
                 reply.attr(&TTL, &self.file_attrs.get(&ino).unwrap())
             }
-            _          => {
+            _ => {
                 if let Some(file) = self
                     .fragment_from_ino(ino)
                     .and_then(|f| f.file_from_ino(ino))
@@ -581,7 +610,7 @@ impl Filesystem for FustaFS {
             ROOT_DIR => {
                 let entries = btreemap! {
                     ROOT_DIR   => (FileType::Directory, ".".to_owned()),
-                    45         => (FileType::Directory, "..".to_owned()), // TODO
+                    0          => (FileType::Directory, "..".to_owned()), // TODO
                     FASTA_DIR  => (FileType::Directory, "fasta".to_owned()),
                     SEQ_DIR    => (FileType::Directory, "seqs".to_owned()),
                     APPEND_DIR => (FileType::Directory, "append".to_owned()),
@@ -649,7 +678,11 @@ impl Filesystem for FustaFS {
                     .fragment_from_filename(name)
                     .and_then(|f| f.file_from_filename(name))
                     .is_some() {
+                        let length_before = self.fragments.len();
                         self.fragments.retain(|f| f.fasta_file.name != name && f.seq_file.name != name);
+                        let length_after = self.fragments.len();
+                        // Only mark as dirty if we effectively removed something
+                        if length_after != length_before { self.dirty = true; }
                         reply.ok();
                         self.concretize();
                     } else {
@@ -658,7 +691,7 @@ impl Filesystem for FustaFS {
                     }
             },
             APPEND_DIR => {
-                warn!("UNLINK: cannot remove from append virtual dir");
+                warn!("UNLINK: unauthorized in append virtual dir");
                 reply.error(EACCES);
             }
             _ => {
@@ -678,7 +711,7 @@ impl Filesystem for FustaFS {
                 let name = name.to_str().unwrap();
                 let basename = std::path::Path::new(name).file_stem().unwrap().to_str().unwrap();
                 // If pathname already exists [...], this call fails with an EEXIST error.
-                if self.fragments.iter().any(|f| f.id == basename) && NO_REPLACE {
+                if self.fragments.iter().any(|f| f.id == basename) && NO_OVERWRITE {
                     error!("Cannot create `{:?}`, already exists", name);
                     reply.error(EEXIST);
                     return
@@ -718,11 +751,12 @@ impl Filesystem for FustaFS {
     }
 
     fn write(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, data: &[u8], _flags: u32, reply: ReplyWrite) {
-        if self.fragment_from_ino(ino).is_some() { // We write to an existing fragment
-            if self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().class.readonly() {
-                reply.error(EACCES);
-            } else {
-                // If it's a raw seq file, we can write
+        if !self.is_writeable(ino) {
+            error!("{} is not writeable", ino);
+            reply.error(EACCES);
+        } else {
+            // We write to an existing fragment
+            if self.fragment_from_ino(ino).is_some() {
                 let mut fragment = self.mut_fragment_from_ino(ino).expect("Something went very wrong");
 
                 // As soon as there's a write, we have to switch to a buffer-backed storage
@@ -739,26 +773,30 @@ impl Filesystem for FustaFS {
                     let start = offset as usize;
                     let end = start + data.len();
                     b.splice(start .. end, data.iter().cloned());
+                    fragment.refresh_virtual_files();
                     reply.written(data.len() as u32);
+                    self.dirty = true;
                 } else {
                     panic!("Something went very wrong...")
                 }
             }
-        } else if let Some((name, pending_fragment)) = self
-            .pending_appends
-            .iter_mut()
-            .find(|(_, p)| p.attrs.ino == ino)
-        { // We write to a pending fragment
-            let start = offset as usize;
-            let end = start + data.len();
-            if end > pending_fragment.data.len() {
-                pending_fragment.data.resize_with(end, Default::default);
+            // We write to a pending fragment
+            else if let Some((name, pending_fragment)) = self
+                .pending_appends
+                .iter_mut()
+                .find(|(_, p)| p.attrs.ino == ino)
+            {
+                let start = offset as usize;
+                let end = start + data.len();
+                if end > pending_fragment.data.len() {
+                    pending_fragment.data.resize_with(end, Default::default);
+                }
+                pending_fragment.data.splice(start .. end, data.iter().cloned());
+                reply.written(data.len() as u32);
+                trace!("\tWriting to {}", name);
+            } else {
+                reply.error(ENOENT);
             }
-            pending_fragment.data.splice(start .. end, data.iter().cloned());
-            reply.written(data.len() as u32);
-            trace!("\tWriting to {}", name);
-        } else {
-            reply.error(ENOENT);
         }
     }
 
@@ -804,15 +842,18 @@ impl Filesystem for FustaFS {
                         if let Some(size) = size {
                             let size = size as usize;
                             if size == 0 { // Clear the file, called by the truncate syscall
-                                if let Some(f) = self.mut_fragment_from_ino(ino) {
-                                    f.data = Backing::Buffer(Vec::new());
+                                if let Some(fragment) = self.mut_fragment_from_ino(ino) {
+                                    fragment.data = Backing::Buffer(Vec::new());
+                                    fragment.refresh_virtual_files();
                                 }
                             } else if size != self.fragment_from_ino(ino).map(Fragment::data_size).unwrap() { // Redim the file
                                 let mut fragment = self.mut_fragment_from_ino(ino).unwrap();
                                 if !matches!(fragment.data, Backing::Buffer(_)) {
                                     fragment.data = Backing::Buffer(fragment.data().to_vec());
                                 }
-                                fragment.extend(size)
+                                fragment.extend(size);
+                                fragment.refresh_virtual_files();
+                                self.dirty = true;
                             }
                             self
                                 .mut_fragment_from_ino(ino)
@@ -844,7 +885,6 @@ impl Filesystem for FustaFS {
         self.concretize()
     }
 
-    /// Rename a file.
     fn rename(&mut self, _req: &Request, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr, reply: ReplyEmpty) {
         match parent {
             ROOT_DIR | APPEND_DIR => {
@@ -853,28 +893,30 @@ impl Filesystem for FustaFS {
             }
             SEQ_DIR | FASTA_DIR => {
                 if newparent != parent {
-                    error!("RENAME: Cannot move files oout of folder, please copy them");
+                    error!("Cannot move files out of folder, please copy them instead");
                     reply.error(EACCES);
                 } else {
-                    let keys = self.fragments.iter().map(|f| f.id.clone()).collect::<Vec<_>>();
-                    let mut newname = newname.to_str().unwrap().to_string();
-                    let newname_path = std::path::Path::new(&newname);
-                    // Remove the artificial extension
+                    let mut new_id = newname.to_str().unwrap().to_string();
+                    let newname_path = std::path::Path::new(&new_id);
+                    // Remove the artificial extension if it exists
                     if newname_path.extension().map(|ext| ext == SEQ_EXT).unwrap_or(false) {
-                        trace!("Using {:?} for {}", newname_path.file_stem(), newname);
-                        newname = newname_path.file_stem().unwrap().to_str().unwrap().to_string();
+                        debug!("Using {:?} for {}", newname_path.file_stem(), new_id);
+                        new_id = newname_path.file_stem().unwrap().to_str().unwrap().to_string();
                     }
-                    if keys.contains(&newname) && NO_REPLACE {
-                        error!("Cannot rename {:?} to {}: already existing.", name, newname);
+                    // Shortcut if we cannot overwrite existing fragments
+                    let replaced_fragment = self.fragment_from_id(&new_id);
+                    if replaced_fragment.is_some() && NO_OVERWRITE {
+                        error!("Cannot rename {:?} to {}: already existing.", name, new_id);
                         reply.error(EACCES);
                     } else {
-                        if keys.contains(&newname) {
-                            warn!("Replacing {}", newname);
-                            self.fragments.retain(|f| f.id != newname);
+                        if replaced_fragment.is_some() {
+                            warn!("Replacing {}", new_id);
+                            self.fragments.retain(|f| f.id != new_id);
                         }
                         if let Some(ref mut fragment) = self.mut_fragment_from_filename(name.to_str().unwrap()) {
-                            fragment.id = newname.to_string();
+                            fragment.rename(&new_id);
                             info!("Renaming {:?} -> {:?}", name, newname);
+                            self.dirty = true;
                             self.concretize();
                             reply.ok()
                         } else {
@@ -913,16 +955,18 @@ impl Filesystem for FustaFS {
         debug!("RELEASE {}", ino);
         if self.is_writeable(ino) {
             for pending in self.pending_appends.iter() {
+                // FS is dirty at the first pending fragment
+                self.dirty = true;
+
                 if pending.1.attrs.ino == ino {
                     trace!("RELEASE: {}", pending.0);
                     info!("Dumping...");
-                    let mut tmpfile = tempfile::tempfile().expect(&format!("Unable to create a temporary file"));
-                    tmpfile.write_all(&pending.1.data).expect(&format!("Unable to write to temporary file"));
-
+                    // Dump the pending in its own file and parse it
+                    let mut tmpfile = tempfile::tempfile().expect("Unable to create a temporary file");
+                    tmpfile.write_all(&pending.1.data).expect("Unable to write to temporary file");
                     info!("Parsing...");
-                    tmpfile.seek(SeekFrom::Start(0)).expect(&format!("Unable to seek in temporary file"));
+                    tmpfile.seek(SeekFrom::Start(0)).expect("Unable to seek in temporary file");
                     let fastas = FastaReader::new(&tmpfile).collect::<Vec<_>>();
-
                     let new_keys = fastas.iter().map(|f| &f.id).collect::<Vec<_>>();
                     let old_keys = self.fragments
                         .iter()
@@ -930,19 +974,20 @@ impl Filesystem for FustaFS {
                         .cloned()
                         .collect::<Vec<_>>();
 
+                    // Remove the fragments sharing an existing key if overwrite is allowed
                     if !NO_OVERWRITE { self.fragments.retain(|f| !new_keys.contains(&&f.id)) }
 
                     self.fragments.extend(
                         fastas.iter()
                             .filter_map(|fasta| {
-                                let mut seq = vec![0u8; fasta.pos.1 - fasta.pos.0];
-                                tmpfile.seek(SeekFrom::Start(fasta.pos.0 as u64)).expect(&format!("Unable to seek in temporary file"));
-                                let _ = tmpfile.read(&mut seq).unwrap();
-
                                 if old_keys.contains(&fasta.id) && NO_OVERWRITE {
-                                    error!("Skipping {}, already existing", &fasta.id);
+                                    error!("Skipping `{}`, already existing", &fasta.id);
                                     None
                                 } else {
+                                    let mut seq = vec![0u8; fasta.pos.1 - fasta.pos.0];
+                                    tmpfile.seek(SeekFrom::Start(fasta.pos.0 as u64)).expect("Unable to seek in temporary file");
+                                    tmpfile.read(&mut seq).expect("Unable to read from temporary file");
+
                                     Some(Fragment::new(
                                         &fasta.id, &fasta.name,
                                         Backing::Buffer(seq),
@@ -958,21 +1003,6 @@ impl Filesystem for FustaFS {
             debug!("Not a writeable file; ignoring")
         }
         reply.ok();
-    }
-
-    /// Get file system statistics.
-    fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
-        trace!("STATFS");
-        reply.statfs(
-            0,                           // blocks
-            0,                           // bfree
-            0,                           // bavail
-            self.fragments.len() as u64, // files
-            0,                           // ffree
-            512,                         //bsize
-            255,                         // namelen
-            0                            // frsize
-        );
     }
 }
 

@@ -3,6 +3,7 @@ name = "fusta"
 version = "0.1.0"
 authors = ["Franklin Delehelle <franklin.delehelle@odena.eu>"]
 edition = "2018"
+description = "FUSTA leverages the FUSE interface to let you transparently manipulate multiFASTA files as several single FASTA files"
 
 [dependencies]
 memmap = "0.7"

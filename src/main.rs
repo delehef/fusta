@@ -468,7 +468,8 @@ impl FustaFS {
             ])
             .collect::<Vec<_>>();
         self.info_file_buffer = format!("{}\n{}\n{}", header, "=".repeat(header.len()), &table.format(&fragments_infos));
-        self.file_attrs.get_mut(&INFO_FILE).unwrap().size = self.info_file_buffer.as_bytes().len() as u64;
+        let new_size = self.info_file_buffer.as_bytes().len() as u64;
+        self.file_attrs.entry(INFO_FILE).and_modify(|x| x.size = new_size);
     }
 
     fn is_fasta_file(&self, ino: u64) -> bool {

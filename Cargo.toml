@@ -7,7 +7,7 @@ description = "FUSTA leverages the FUSE interface to let you transparently manip
 
 [dependencies]
 memmap = "0.7"
-fuse = { git = "https://github.com/zargony/fuse-rs" }
+fuse = { git = "https://github.com/delehef/fuse-rs" }
 log = "0.4"
 simplelog = "0.7"
 libc = "0.2"

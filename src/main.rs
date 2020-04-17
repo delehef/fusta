@@ -1,5 +1,4 @@
 #![allow(clippy::redundant_field_names)]
-
 use anyhow::{Context, Result, anyhow, bail};
 use fuse::*;
 use std::collections::BTreeMap;
@@ -9,6 +8,7 @@ use std::ffi::OsStr;
 use std::time::{SystemTime, Duration};
 use std::sync::mpsc::channel;
 use std::fs;
+use std::cell::RefCell;
 use libc::*;
 use daemonize::*;
 use maplit::*;
@@ -47,7 +47,7 @@ const NO_OVERWRITE: bool = false;
 
 #[derive(Debug, PartialEq, Clone)]
 enum FileClass {
-    Fasta(Vec<u8>),
+    Fasta(std::cell::RefCell<Vec<u8>>),
     Seq
 }
 impl FileClass {
@@ -59,12 +59,28 @@ impl FileClass {
     }
 }
 
+trait VirtualFile {
+    fn name(&self) -> &str;
+    fn attrs(&self) -> &FileAttr;
+    fn mut_attrs(&mut self) -> &mut FileAttr;
+    fn ino(&self) -> u64;
+    fn class(&self) -> &FileClass;
+}
+
+
 #[derive(Debug)]
-struct VirtualFile {
+struct FragmentFile {
     name: String,
     ino: u64,
     attrs: FileAttr,
     class: FileClass,
+}
+impl VirtualFile for FragmentFile {
+    fn name(&self) -> &str { &self.name }
+    fn attrs(&self) -> &FileAttr { &self.attrs }
+    fn mut_attrs(&mut self) -> &mut FileAttr { &mut self.attrs }
+    fn ino(&self) -> u64 { self.ino }
+    fn class(&self) -> &FileClass { &self.class }
 }
 
 #[derive(Debug)]
@@ -89,8 +105,8 @@ struct Fragment {
     id: String,
     name: Option<String>,
     data: Backing,
-    fasta_file: VirtualFile,
-    seq_file: VirtualFile,
+    fasta_file: FragmentFile,
+    seq_file: FragmentFile,
 }
 impl Fragment {
     fn make_label(id: &str, name: &Option<String>) -> String {
@@ -100,8 +116,8 @@ impl Fragment {
     fn make_virtual_file(
         ino: u64, name: &str, permissions: u16, size: usize, class: FileClass,
         accessed: SystemTime, modified: SystemTime
-    ) -> VirtualFile {
-        VirtualFile {
+    ) -> FragmentFile {
+        FragmentFile {
             name: name.to_string(),
             ino: ino,
             class: class,
@@ -133,7 +149,7 @@ impl Fragment {
             fasta_file: Fragment::make_virtual_file(
                 fasta_ino,
                 &format!("{}.{}", id, FASTA_EXT),
-                0o664, label.as_bytes().len() + data_size, FileClass::Fasta(Vec::new()),
+                0o664, label.as_bytes().len() + data_size, FileClass::Fasta(RefCell::new(Vec::new())),
                 accessed, modified),
             seq_file: Fragment::make_virtual_file(
                 seq_ino,
@@ -518,7 +534,7 @@ impl Filesystem for FustaFS {
                     .fragment_from_filename(name)
                     .and_then(|f| f.file_from_filename(name))
                 {
-                    reply.entry(&TTL, &file.attrs, 0);
+                    reply.entry(&TTL, &file.attrs(), 0);
                 } else {
                     reply.error(ENOENT);
                 }
@@ -543,7 +559,7 @@ impl Filesystem for FustaFS {
                     .fragment_from_ino(ino)
                     .and_then(|f| f.file_from_ino(ino))
                 {
-                    reply.attr(&TTL, &file.attrs)
+                    reply.attr(&TTL, &file.attrs())
                 } else {
                     warn!("GETATTR: ino `{}` does not exist", ino);
                     reply.error(ENOENT)
@@ -570,7 +586,7 @@ impl Filesystem for FustaFS {
                             return;
                         }
                     };
-                    match fragment.file_from_ino(ino).expect("No file linked to this fragment").class {
+                    match fragment.file_from_ino(ino).expect("No file linked to this fragment").class() {
                         FileClass::Fasta(_) => {
                             let label_size = fragment.label_size() as i64;
                             if offset > label_size as i64 {
@@ -579,16 +595,20 @@ impl Filesystem for FustaFS {
                                 let end = offset as usize + size as usize;
                                 let label = fragment.label();
                                 let data_chunk = fragment.chunk(0, std::cmp::min(fragment.data_size() as u32, size));
-                                match fragment.mut_file_from_ino(ino).expect("No file linked to this fragment").class {
-                                    FileClass::Fasta(ref mut header_buffer) => {
-                                        if end > header_buffer.len() {
-                                            *header_buffer = label.as_bytes().iter()
-                                                .chain(data_chunk.iter())
-                                                .cloned()
-                                                .take(end as usize)
-                                                .collect::<Vec<_>>();
+                                match fragment.mut_file_from_ino(ino).expect("No file linked to this fragment").class() {
+                                    FileClass::Fasta(header_buffer) => {
+                                        if end > header_buffer.borrow().len() {
+                                            header_buffer.replace(
+                                                label.as_bytes().iter()
+                                                    .chain(data_chunk.iter())
+                                                    .cloned()
+                                                    .take(end as usize)
+                                                    .collect::<Vec<_>>()
+                                            );
                                         }
-                                        reply.data(&header_buffer[offset as usize .. std::cmp::min(end, header_buffer.len())]);
+                                        reply.data(&header_buffer.borrow()[offset as usize
+                                                                           ..
+                                                                           std::cmp::min(end, header_buffer.borrow().len())]);
                                     }
                                     _ => { panic!("WTF") }
                                 }
@@ -826,19 +846,19 @@ impl Filesystem for FustaFS {
             INFO_FILE => { reply.error(EACCES) }
             _ => {
                 if self.fragment_from_ino(ino).is_some() {
-                    if self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().class.readonly() {
+                    if self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().class().readonly() {
                         reply.error(EACCES);
                     } else {
                         if let Some(file) = self.mut_fragment_from_ino(ino).and_then(|f| f.mut_file_from_ino(ino)) {
-                            if let Some(uid) = uid         {file.attrs.uid = uid}
-                            if let Some(gid) = gid         {file.attrs.gid = gid}
-                            if let Some(atime) = atime     { file.attrs.atime = atime }
-                            if let Some(mtime) = mtime     { file.attrs.mtime = mtime }
-                            if let Some(chgtime) = chgtime { file.attrs.mtime = chgtime }
-                            if let Some(crtime) = crtime   { file.attrs.crtime = crtime }
+                            if let Some(uid) = uid         {file.mut_attrs().uid = uid}
+                            if let Some(gid) = gid         {file.mut_attrs().gid = gid}
+                            if let Some(atime) = atime     { file.mut_attrs().atime = atime }
+                            if let Some(mtime) = mtime     { file.mut_attrs().mtime = mtime }
+                            if let Some(chgtime) = chgtime { file.mut_attrs().mtime = chgtime }
+                            if let Some(crtime) = crtime   { file.mut_attrs().crtime = crtime }
                             // macOS only
-                            if let Some(flags) = flags     { file.attrs.flags = flags }
-                            if let Some(mode) = mode       { file.attrs.perm = mode as u16 }
+                            if let Some(flags) = flags     { file.mut_attrs().flags = flags }
+                            if let Some(mode) = mode       { file.mut_attrs().perm = mode as u16 }
                         }
                         if let Some(size) = size {
                             let size = size as usize;
@@ -859,9 +879,9 @@ impl Filesystem for FustaFS {
                             self
                                 .mut_fragment_from_ino(ino)
                                 .and_then(|f| f.mut_file_from_ino(ino))
-                                .unwrap().attrs.size = size as u64;
+                                .unwrap().mut_attrs().size = size as u64;
                         }
-                        reply.attr(&TTL, &self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().attrs);
+                        reply.attr(&TTL, &self.fragment_from_ino(ino).and_then(|f| f.file_from_ino(ino)).unwrap().attrs());
                     }
                 } else if let Some((name, pending_fragment)) = self
                     .pending_appends

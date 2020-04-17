@@ -19,7 +19,6 @@ const TTL: Duration = Duration::from_secs(1);
 
 const FASTA_EXT: &str = "fa";
 const SEQ_EXT: &str = "seq";
-const EXTENSIONS: &[&str] = &["FA", "FASTA"];
 
 // Virtual directories
 const ROOT_DIR: u64   = 1;
@@ -188,9 +187,9 @@ impl Fragment {
         match &self.data {
             Backing::File(filename, start, _) => {
                 let mut buffer = vec![0u8; self.data_size() as usize];
-                let mut f = fs::File::open(&filename).expect(&format!("Unable to open `{}`", filename));
-                f.seek(SeekFrom::Start(*start as u64)).expect(&format!("Unable to seek in `{}`", filename));
-                f.read(&mut buffer).expect(&format!("Unable to read from `{}`", filename));
+                let mut f = fs::File::open(&filename).unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
+                f.seek(SeekFrom::Start(*start as u64)).unwrap_or_else(|_| panic!("Unable to seek in `{}`", filename));
+                f.read_exact(&mut buffer).unwrap_or_else(|_| panic!("Unable to read from `{}`", filename));
                 buffer.into_boxed_slice()
             },
             Backing::Buffer(ref b) => {
@@ -206,9 +205,9 @@ impl Fragment {
         match &self.data {
             Backing::File(filename, start, _) => {
                 let mut buffer = vec![0u8; size as usize];
-                let mut f = fs::File::open(&filename).expect(&format!("Unable to open `{}`", filename));
-                f.seek(SeekFrom::Start(*start as u64 + offset as u64)).expect(&format!("Unable to seek in `{}`", filename));
-                f.read(&mut buffer).expect(&format!("Unable to read from `{}`", filename));
+                let mut f = fs::File::open(&filename).unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
+                f.seek(SeekFrom::Start(*start as u64 + offset as u64)).unwrap_or_else(|_| panic!("Unable to seek in `{}`", filename));
+                f.read_exact(&mut buffer).unwrap_or_else(|_| panic!("Unable to read from `{}`", filename));
                 buffer.into_boxed_slice()
             },
             Backing::Buffer(ref b) => {
@@ -369,7 +368,7 @@ impl FustaFS {
 
     fn read_fasta(&mut self, filename: &str) {
         info!("Reading {}...", filename);
-        let fasta_file = fs::File::open(filename).expect(&format!("Unable to open `{}`", filename));
+        let fasta_file = fs::File::open(filename).unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
         let fragments = FastaReader::new(fasta_file).collect::<Vec<_>>();
         info!("Done.");
         let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
@@ -377,7 +376,7 @@ impl FustaFS {
         keys.dedup();
         if keys.len() != fragments.len() {panic!("Duplicated keys")}
 
-        let file = fs::File::open(filename).expect(&format!("Unable to open `{}`", filename));
+        let file = fs::File::open(filename).unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
         self.filename = filename.to_owned();
 
         self.fragments = fragments.iter()
@@ -416,13 +415,13 @@ impl FustaFS {
         let tmp_filename = format!("{}#fusta#", &self.filename);
         { // Scope to ensure the tmp file is correctly closed
             trace!("Writing fragments");
-            let mut tmp_file = fs::File::create(&tmp_filename).expect(&format!("Unable to create `{}`", tmp_filename));
+            let mut tmp_file = fs::File::create(&tmp_filename).unwrap_or_else(|_| panic!("Unable to create `{}`", tmp_filename));
             for fragment in self.fragments.iter_mut() {
                 trace!("Writing {}", fragment.id);
-                tmp_file.write_all(fragment.label().as_bytes()).expect(&format!("Unable to write to `{}`", tmp_filename));
+                tmp_file.write_all(fragment.label().as_bytes()).unwrap_or_else(|_| panic!("Unable to write to `{}`", tmp_filename));
                 index += fragment.label().as_bytes().len();
                 last_start = index;
-                tmp_file.write_all(&fragment.data()).expect(&format!("Unable to write to `{}`", tmp_filename));
+                tmp_file.write_all(&fragment.data()).unwrap_or_else(|_| panic!("Unable to write to `{}`", tmp_filename));
                 index += fragment.data().len();
 
                 fragment.data = Backing::File(self.filename.clone(), last_start, index);
@@ -430,7 +429,8 @@ impl FustaFS {
             }
         }
         trace!("Renaming {} to {}", tmp_filename, &self.filename);
-        fs::rename(&tmp_filename, &self.filename).expect(&format!("Unable to rename `{}` to `{}`", &tmp_filename, &self.filename));
+        fs::rename(&tmp_filename, &self.filename)
+            .unwrap_or_else(|_| panic!("Unable to rename `{}` to `{}`", &tmp_filename, &self.filename));
         warn!("========== DONE ========");
         self.dirty = false;
     }
@@ -481,15 +481,15 @@ impl FustaFS {
     }
 
     fn is_fasta_file(&self, ino: u64) -> bool {
-        self.fragments.iter().find(|f| f.fasta_file.ino == ino).is_some()
+        self.fragments.iter().any(|f| f.fasta_file.ino == ino)
     }
 
     fn is_seq_file(&self, ino: u64) -> bool {
-        self.fragments.iter().find(|f| f.seq_file.ino == ino).is_some()
+        self.fragments.iter().any(|f| f.seq_file.ino == ino)
     }
 
     fn is_append_file(&self, ino: u64) -> bool {
-        self.pending_appends.iter().find(|p| p.1.attrs.ino == ino).is_some()
+        self.pending_appends.iter().any(|p| p.1.attrs.ino == ino)
     }
 
     fn is_writeable(&self, ino: u64) -> bool {
@@ -999,7 +999,7 @@ impl Filesystem for FustaFS {
                                 } else {
                                     let mut seq = vec![0u8; fasta.pos.1 - fasta.pos.0];
                                     tmpfile.seek(SeekFrom::Start(fasta.pos.0 as u64)).expect("Unable to seek in temporary file");
-                                    tmpfile.read(&mut seq).expect("Unable to read from temporary file");
+                                    tmpfile.read_exact(&mut seq).expect("Unable to read from temporary file");
 
                                     Some(Fragment::new(
                                         &fasta.id, &fasta.name,

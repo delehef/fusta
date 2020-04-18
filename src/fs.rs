@@ -29,6 +29,8 @@ const APPEND_DIR: u64 = 4;
 // Pure virtual files
 const INFO_FILE: u64  = 10;
 const INFO_FILE_NAME: &str = "infos.txt";
+const LABELS_FILE: u64  = 11;
+const LABELS_FILE_NAME: &str = "labels.txt";
 
 // First free ino
 const FIRST_INO: u64  = 20;
@@ -39,7 +41,8 @@ const NO_OVERWRITE: bool = false;
 #[derive(Debug, PartialEq, Clone)]
 enum FileClass {
     Fasta(std::cell::RefCell<Vec<u8>>),
-    Seq
+    Seq,
+    Text
 }
 impl FileClass {
     fn readonly(&self) -> bool {
@@ -56,8 +59,29 @@ trait VirtualFile {
     fn mut_attrs(&mut self) -> &mut FileAttr;
     fn ino(&self) -> u64;
     fn class(&self) -> &FileClass;
+    fn data(&self) -> &[u8];
+    fn set_data(&mut self, data: &[u8]);
 }
 
+struct BufferFile {
+    name: String,
+    ino: u64,
+    attrs: FileAttr,
+    class: FileClass,
+    _data: Vec<u8>,
+}
+impl VirtualFile for BufferFile {
+    fn name(&self) -> &str { &self.name }
+    fn attrs(&self) -> &FileAttr { &self.attrs }
+    fn mut_attrs(&mut self) -> &mut FileAttr { &mut self.attrs }
+    fn ino(&self) -> u64 { self.ino }
+    fn class(&self) -> &FileClass { &self.class }
+    fn data(&self) -> &[u8] { &self._data }
+    fn set_data(&mut self, data: &[u8])  {
+        self._data.clear();
+        self._data.extend_from_slice(data)
+    }
+}
 
 #[derive(Debug)]
 struct FragmentFile {
@@ -72,6 +96,8 @@ impl VirtualFile for FragmentFile {
     fn mut_attrs(&mut self) -> &mut FileAttr { &mut self.attrs }
     fn ino(&self) -> u64 { self.ino }
     fn class(&self) -> &FileClass { &self.class }
+    fn data(&self) -> &[u8] { unimplemented!() }
+    fn set_data(&mut self, _: &[u8]) { unimplemented!() }
 }
 
 #[derive(Debug)]
@@ -279,14 +305,12 @@ pub struct FustaFS {
     fragments: Vec<Fragment>,
     metadata: fs::Metadata,
     dir_attrs: BTreeMap<u64, FileAttr>,
-    file_attrs: BTreeMap<u64, FileAttr>,
+    files: Vec<Box<dyn VirtualFile + Send>>,
     filename: String,
     settings: FustaSettings,
     current_ino: u64,
 
     pending_appends: HashMap<String, PendingAppend>,
-
-    info_file_buffer: String,
 
     dirty: bool,
 }
@@ -305,15 +329,26 @@ impl FustaFS {
                 FASTA_DIR  => FustaFS::make_dir_attrs(FASTA_DIR, 0o555),
                 APPEND_DIR => FustaFS::make_dir_attrs(APPEND_DIR, 0o775),
             },
-            file_attrs: btreemap! {
-                // Pure virtual files
-                INFO_FILE  => FustaFS::make_file_attrs(INFO_FILE, 0o444),
-            },
+            files: vec![
+                Box::new(BufferFile {
+                    name: INFO_FILE_NAME.to_owned(),
+                    ino: INFO_FILE,
+                    attrs: FustaFS::make_file_attrs(INFO_FILE, 0o444),
+                    class: FileClass::Text,
+                    _data: Vec::new(),
+                }),
+                Box::new(BufferFile {
+                    name: LABELS_FILE_NAME.to_owned(),
+                    ino: LABELS_FILE,
+                    attrs: FustaFS::make_file_attrs(LABELS_FILE, 0o444),
+                    class: FileClass::Text,
+                    _data: Vec::new(),
+                }),
+            ],
             metadata: metadata,
             settings: settings,
             current_ino: FIRST_INO,
             pending_appends: HashMap::new(),
-            info_file_buffer: String::new(),
             dirty: false,
         };
 
@@ -366,6 +401,10 @@ impl FustaFS {
         r
     }
 
+    fn get_file(&mut self, ino: u64) -> Option<&mut Box<dyn VirtualFile + Send>> {
+        self.files.iter_mut().find(|f| f.ino() == ino)
+    }
+
     fn read_fasta(&mut self, filename: &str) {
         info!("Reading {}...", filename);
         let fasta_file = fs::File::open(filename).unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
@@ -401,6 +440,7 @@ impl FustaFS {
             })
             .collect::<Vec<_>>();
         self.make_info_buffer();
+        self.make_labels_buffer();
     }
 
     fn concretize(&mut self) {
@@ -467,7 +507,7 @@ impl FustaFS {
 
         trace!("Making INFO BUFFER");
         let header = format!("{} - {} sequences", &self.filename, self.fragments.len());
-        let fragments_infos = self.fragments
+        let infos = self.fragments
             .iter()
             .map(|f| vec![
                 f.id.to_owned(),
@@ -475,9 +515,22 @@ impl FustaFS {
                 f.data_size().to_formatted_string(&Locale::en)
             ])
             .collect::<Vec<_>>();
-        self.info_file_buffer = format!("{}\n{}\n{}", header, "=".repeat(header.len()), &table.format(&fragments_infos));
-        let new_size = self.info_file_buffer.as_bytes().len() as u64;
-        self.file_attrs.entry(INFO_FILE).and_modify(|x| x.size = new_size);
+        let content = format!("{}\n{}\n{}", header, "=".repeat(header.len()), &table.format(&infos));
+        let size = content.as_bytes().len() as u64;
+        self.get_file(INFO_FILE).and_then(|x| {x.set_data(content.as_bytes()); Some(())});
+        self.get_file(INFO_FILE).and_then(|x| {x.mut_attrs().size = size; Some(())});
+    }
+
+    fn make_labels_buffer(&mut self) {
+        trace!("Making LABELS BUFFER");
+        let content = self.fragments
+            .iter()
+            .map(Fragment::label)
+            .collect::<Vec<_>>()
+            .join("");
+        let size = content.as_bytes().len() as u64;
+        self.get_file(LABELS_FILE).and_then(|x| {x.set_data(content.as_bytes()); Some(())});
+        self.get_file(LABELS_FILE).and_then(|x| {x.mut_attrs().size = size; Some(())});
     }
 
     fn is_fasta_file(&self, ino: u64) -> bool {
@@ -514,7 +567,10 @@ impl Filesystem for FustaFS {
                         reply.entry(&TTL, &self.dir_attrs[&APPEND_DIR], 0);
                     },
                     INFO_FILE_NAME => {
-                        reply.entry(&TTL, &self.file_attrs[&INFO_FILE], 0);
+                        reply.entry(&TTL, &self.get_file(INFO_FILE).unwrap().attrs(), 0);
+                    }
+                    LABELS_FILE_NAME => {
+                        reply.entry(&TTL, &self.get_file(LABELS_FILE).unwrap().attrs(), 0);
                     }
                     _ => {
                         reply.error(ENOENT);
@@ -544,7 +600,10 @@ impl Filesystem for FustaFS {
                 reply.attr(&TTL, &self.dir_attrs.get(&ino).unwrap())
             }
             INFO_FILE => {
-                reply.attr(&TTL, &self.file_attrs.get(&ino).unwrap())
+                reply.attr(&TTL, &self.get_file(INFO_FILE).unwrap().attrs())
+            }
+            LABELS_FILE => {
+                reply.attr(&TTL, &self.get_file(LABELS_FILE).unwrap().attrs())
             }
             _ => {
                 if let Some(file) = self
@@ -565,9 +624,17 @@ impl Filesystem for FustaFS {
         match ino {
             INFO_FILE => {
                 self.make_info_buffer();
+                let data = self.get_file(INFO_FILE).unwrap().data();
                 let start = offset as usize;
-                let end = std::cmp::min(start + size as usize, self.info_file_buffer.len());
-                reply.data(&self.info_file_buffer.as_bytes()[start .. end]);
+                let end = std::cmp::min(start + size as usize, data.len());
+                reply.data(&data[start .. end]);
+            },
+            LABELS_FILE => {
+                self.make_labels_buffer();
+                let data = self.get_file(LABELS_FILE).unwrap().data();
+                let start = offset as usize;
+                let end = std::cmp::min(start + size as usize, data.len());
+                reply.data(&data[start .. end]);
             },
             _ => {
                 if self.fragment_from_ino(ino).is_some() {
@@ -609,6 +676,8 @@ impl Filesystem for FustaFS {
                         FileClass::Seq => {
                             reply.data(&fragment.chunk(offset, size))
                         }
+                        FileClass::Text => {
+                        }
                     }
                 } else {
                     warn!("READ: {} is not a file", ino);
@@ -628,6 +697,7 @@ impl Filesystem for FustaFS {
                     SEQ_DIR    => (FileType::Directory, "seqs".to_owned()),
                     APPEND_DIR => (FileType::Directory, "append".to_owned()),
                     INFO_FILE  => (FileType::RegularFile, INFO_FILE_NAME.to_owned()),
+                    LABELS_FILE  => (FileType::RegularFile, LABELS_FILE_NAME.to_owned()),
                 };
                 for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
                     reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());

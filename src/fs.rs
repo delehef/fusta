@@ -207,7 +207,7 @@ impl Fragment {
                 let mut buffer = vec![0u8; size as usize];
                 let mut f = fs::File::open(&filename).unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
                 f.seek(SeekFrom::Start(*start as u64 + offset as u64)).unwrap_or_else(|_| panic!("Unable to seek in `{}`", filename));
-                f.read_exact(&mut buffer).unwrap_or_else(|_| panic!("Unable to read from `{}`", filename));
+                f.read(&mut buffer).unwrap_or_else(|_| panic!("Unable to read from `{}`", filename));
                 buffer.into_boxed_slice()
             },
             Backing::Buffer(ref b) => {
@@ -999,11 +999,11 @@ impl Filesystem for FustaFS {
                                 } else {
                                     let mut seq = vec![0u8; fasta.pos.1 - fasta.pos.0];
                                     tmpfile.seek(SeekFrom::Start(fasta.pos.0 as u64)).expect("Unable to seek in temporary file");
-                                    tmpfile.read_exact(&mut seq).expect("Unable to read from temporary file");
+                                    let read = tmpfile.read(&mut seq).expect("Unable to read from temporary file");
 
                                     Some(Fragment::new(
                                         &fasta.id, &fasta.name,
-                                        Backing::Buffer(seq),
+                                        Backing::Buffer(seq[0 .. read].to_vec()),
                                         pending.1.seq_ino, pending.1.fasta_ino,
                                         pending.1.attrs.atime, pending.1.attrs.mtime
                                     ))

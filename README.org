@@ -1,34 +1,53 @@
 * What is FUSTA?
 FUSTA is a FUSE-based virtual filesystem mirroring a (multi)FASTA file as a hierarchy of individual virtual files, simplifying efficient data extraction and bulk/automated processing of FASTA files.
-
 ** Licensing
 FUSTA is distributed under the CeCILL-C (LGPLv3 compatible) license. Please see the LICENSE file for details.
-
-* Installation
-** Linux
+* Getting Started
+** Installation
+*** Linux
 Static binaries for Linux are available [here](https://github.com/delehef/asgart/releases) for x86_64 platforms.
-
-** MacOS
+*** MacOS
 Binaries for macOS are available [here](https://github.com/delehef/asgart/releases).
-
-** From Sources
+*** From Sources
+**** Prerequisites
 To build FUSTA from sources, you need the [[https://www.rust-lang.org/en-US/install.html][Rust compiler]]. Once it has been installed, clone the repository:
-
 #+begin_src
 git clone https://github.com/delehef/asgart.git
 #+end_src
-
+**** Installation
 You can then build FUSTA by running =cargo=, the Rust build tool:
-
 #+begin_src
 cargo build --release
 #+end_src
-
 Once the build is finished, you will find the binary in =target/release/fusta=, an can be run form there or may be moved somewhere else.
 
 * Usage
 ** Quick Start
+These commands will automatically create a folder =fusta= then run =fusta= in the background, which will mount the FASTA file =file.fa= in it, exposing all the sequences it contains. The call to =tree= will display the virtual hierarchy, then =fusermount= is called to cleanly unmount the file.
+
+#+begin_src
+fusta file.fa -D
+tree -h fusta/
+fusermount -u fusta
+#+end_src
+** Features
 ** Options
+#+begin_src
+USAGE:
+    fusta [OPTIONS] <FASTA> --mountpoint <mountpoint>
+
+OPTIONS:
+    -D, --daemon                     Launch in the background; will automatically quit when unmounted
+    -h, --help                       Prints help information
+    -M, --mmap                       Use mmap instead of seek to browse FASTA fragments. Faster, but memory hungry
+    -o, --mountpoint <mountpoint>    Specifies the directory to use as mountpoint [default: fusta]
+    -E, --non-empty                  Perform the mount even if the destination folder is not empty
+    -v                               Sets the level of verbosity
+    -V, --version                    Prints version information
+
+ARGS:
+    <FASTA>    A (multi)FASTA file containing the sequences to mount
+#+end_src
 ** Examples
    All the following examples assume that a fasta file has been mounted (/e.g./ =fusta -D genome.fa=), and is unmounted after manipulation (=fusermount fusta=).
 *** Extract Sequences
@@ -56,3 +75,5 @@ Once the build is finished, you will find the binary in =target/release/fusta=, 
  blastn mydb.db -query fusta/fasta/seq25.fa
  asgart fusta/fasta/chrX.fa fusta/asgart/chrY.fa --out result.json
  #+end_src
+* Contact
+* Acknowledgments

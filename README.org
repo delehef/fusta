@@ -1,0 +1,58 @@
+* What is FUSTA?
+FUSTA is a FUSE-based virtual filesystem mirroring a (multi)FASTA file as a hierarchy of individual virtual files, simplifying efficient data extraction and bulk/automated processing of FASTA files.
+
+** Licensing
+FUSTA is distributed under the CeCILL-C (LGPLv3 compatible) license. Please see the LICENSE file for details.
+
+* Installation
+** Linux
+Static binaries for Linux are available [here](https://github.com/delehef/asgart/releases) for x86_64 platforms.
+
+** MacOS
+Binaries for macOS are available [here](https://github.com/delehef/asgart/releases).
+
+** From Sources
+To build FUSTA from sources, you need the [[https://www.rust-lang.org/en-US/install.html][Rust compiler]]. Once it has been installed, clone the repository:
+
+#+begin_src
+git clone https://github.com/delehef/asgart.git
+#+end_src
+
+You can then build FUSTA by running =cargo=, the Rust build tool:
+
+#+begin_src
+cargo build --release
+#+end_src
+
+Once the build is finished, you will find the binary in =target/release/fusta=, an can be run form there or may be moved somewhere else.
+
+* Usage
+** Quick Start
+** Options
+** Examples
+   All the following examples assume that a fasta file has been mounted (/e.g./ =fusta -D genome.fa=), and is unmounted after manipulation (=fusermount fusta=).
+*** Extract Sequences
+ #+begin_src
+ cat fusta/fasta/chr{X,Y}.fa > ~/sex_chrs.fa
+ #+end_src
+*** Remove Sequences
+ #+begin_src
+ rm fusta/seq/chr{3,5}.seq
+ #+end_src
+*** Add Sequence
+ #+begin_src
+ cp more_sequences.fa fusta/append
+ #+end_src
+*** Edit A Sequence
+ #+begin_src
+ nano fusta/seq/chrMT.seq
+ #+end_src
+*** Rename Sequences
+ #+begin_src
+ cd fusta/seq; for i in *; do mv ${i} chr${i}; done
+ #+end_src
+*** Processing Sequence(s)
+ #+begin_src
+ blastn mydb.db -query fusta/fasta/seq25.fa
+ asgart fusta/fasta/chrX.fa fusta/asgart/chrY.fa --out result.json
+ #+end_src

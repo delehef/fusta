@@ -3,7 +3,7 @@ use std::sync::mpsc::channel;
 use std::ffi::OsStr;
 
 use daemonize::*;
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, Context};
 use log::*;
 use simplelog::*;
 use clap::*;
@@ -73,17 +73,24 @@ fn main() -> Result<()> {
     if args.is_present("daemon") {
         let mut log_file = std::env::temp_dir();
         log_file.push("fusta.log");
-        WriteLogger::new(log_level, log_config, std::fs::File::create(log_file)?);
+
+        WriteLogger::init(
+            log_level,
+            log_config,
+            std::fs::File::create(&log_file).context("Unable to create log file")?
+        ).context("Unable to initialize logger")?;
 
         let mut pid_file = std::env::temp_dir();
         pid_file.push("fusta.pid");
 
+        println!("Logs {:?} available in {:?}", log_level, log_file);
+
         Daemonize::new()
             .pid_file(pid_file)
-            .working_directory(std::env::current_dir().expect("Unable to read current directory"))
+            .working_directory(std::env::current_dir().context("Unable to read current directory")?)
             .start()?;
     } else {
-        TermLogger::init(log_level, log_config, TerminalMode::Mixed).expect("Unable to initialize logger");
+        TermLogger::init(log_level, log_config, TerminalMode::Mixed).context("Unable to initialize logger")?;
     }
 
 

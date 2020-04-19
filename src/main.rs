@@ -71,19 +71,20 @@ fn main() -> Result<()> {
         .build();
 
     if args.is_present("daemon") {
-        let mut log_file = std::env::temp_dir();
-        log_file.push("fusta.log");
+        let log_file_path = tempfile::Builder::new()
+            .prefix("fusta-")
+            .suffix(".log")
+            .tempfile()
+            .context("Unable to create a temporary file")?;
 
+        println!("Logs ({:?}) available in {:?}", log_level, log_file_path.path());
         WriteLogger::init(
-            log_level,
-            log_config,
-            std::fs::File::create(&log_file).context("Unable to create log file")?
+            log_level, log_config,
+            log_file_path
         ).context("Unable to initialize logger")?;
 
         let mut pid_file = std::env::temp_dir();
         pid_file.push("fusta.pid");
-
-        println!("Logs {:?} available in {:?}", log_level, log_file);
 
         Daemonize::new()
             .pid_file(pid_file)

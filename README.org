@@ -72,3 +72,4 @@ ARGS:
  #+end_src
 * Contact
 * Acknowledgments
+FUSTA is standing on the shoulders of, among others, [[https://github.com/zargony/fuse-rs/][fuse-rs]], [[https://github.com/clap-rs/clap][clap]], [[https://github.com/danburkert/memmap-rs][memmap]] and [[https://github.com/knsd/daemonize][daemonize]].

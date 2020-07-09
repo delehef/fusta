@@ -4,11 +4,7 @@ FUSTA is a FUSE-based virtual filesystem mirroring a (multi)FASTA file as a hier
 FUSTA is distributed under the CeCILL-C (LGPLv3 compatible) license. Please see the LICENSE file for details.
 * Getting Started
 ** Installation
-*** Linux
-Static binaries for Linux are available [here](https://github.com/delehef/asgart/releases) for x86_64 platforms.
-*** MacOS
-Binaries for macOS are available [here](https://github.com/delehef/asgart/releases).
-*** From Sources
+*** From Source
 **** Prerequisites
 To build FUSTA from sources, you need the [[https://www.rust-lang.org/en-US/install.html][Rust compiler]]. Once it has been installed, clone the repository:
 #+begin_src
@@ -19,7 +15,7 @@ You can then build FUSTA by running =cargo=, the Rust build tool:
 #+begin_src
 cargo build --release
 #+end_src
-Once the build is finished, you will find the binary in =target/release/fusta=, an can be run form there or may be moved somewhere else.
+Once the build has concluded, you will find the binary in =target/release/fusta=. It can be run form there or may be moved to a more standard location.
 
 * Usage
 ** Quick Start
@@ -30,7 +26,6 @@ fusta file.fa -D
 tree -h fusta/
 fusermount -u fusta
 #+end_src
-** Features
 ** Options
 #+begin_src
 USAGE:
@@ -39,7 +34,7 @@ USAGE:
 OPTIONS:
     -D, --daemon                     Launch in the background; will automatically quit when unmounted
     -h, --help                       Prints help information
-    -M, --mmap                       Use mmap instead of seek to browse FASTA fragments. Faster, but memory hungry
+    -M, --mmap                       Use mmap instead of seek to extract sequences. Faster, but memory hungrier.
     -o, --mountpoint <mountpoint>    Specifies the directory to use as mountpoint [default: fusta]
     -E, --non-empty                  Perform the mount even if the destination folder is not empty
     -v                               Sets the level of verbosity
@@ -51,27 +46,27 @@ ARGS:
 ** Examples
    All the following examples assume that a fasta file has been mounted (/e.g./ =fusta -D genome.fa=), and is unmounted after manipulation (=fusermount fusta=).
 *** Extract Sequences
- #+begin_src
+ #+begin_src shell
  cat fusta/fasta/chr{X,Y}.fa > ~/sex_chrs.fa
  #+end_src
 *** Remove Sequences
- #+begin_src
+ #+begin_src shell
  rm fusta/seq/chr{3,5}.seq
  #+end_src
 *** Add Sequence
- #+begin_src
+ #+begin_src shell
  cp more_sequences.fa fusta/append
  #+end_src
 *** Edit A Sequence
- #+begin_src
+ #+begin_src shell
  nano fusta/seq/chrMT.seq
  #+end_src
 *** Rename Sequences
- #+begin_src
+ #+begin_src shell
  cd fusta/seq; for i in *; do mv ${i} chr${i}; done
  #+end_src
 *** Processing Sequence(s)
- #+begin_src
+ #+begin_src shell
  blastn mydb.db -query fusta/fasta/seq25.fa
  asgart fusta/fasta/chrX.fa fusta/asgart/chrY.fa --out result.json
  #+end_src

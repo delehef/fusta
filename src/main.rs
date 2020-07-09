@@ -52,7 +52,7 @@ fn main() -> Result<()> {
         .arg(Arg::with_name("mmap")
              .short("M")
              .long("mmap")
-             .help("Use mmap instead of seek to browse FASTA fragments. Faster, but memory hungry"))
+             .help("Use mmap instead of seek to extract sequences. Faster, but memory hungrier."))
 
         .arg(Arg::with_name("nonempty")
              .short("E")

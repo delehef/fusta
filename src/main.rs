@@ -1,5 +1,4 @@
 #![allow(clippy::redundant_field_names)]
-use std::sync::mpsc::channel;
 use std::ffi::OsStr;
 
 use daemonize::*;
@@ -133,31 +132,16 @@ fn main() -> Result<()> {
         );
     }
 
-    let (tx, rx) = channel();
-
-
-    {
-        let tx_ctrlc = tx.clone();
-        ctrlc::set_handler(move || {
-            info!("Ctrl-C received, exiting.");
-            let _ = tx_ctrlc.send(());
-        })?;
+    let err_msg = format!("Please use `fusermount -u {:?}` or `umount` to exit.", &env.mountpoint.canonicalize().unwrap());
+    ctrlc::set_handler(move || {
+        error!("{}", err_msg);
+    })?;
+    match fuse::mount(fs, &env.mountpoint, &fuse_options) {
+        Ok(()) => {},
+        _      => { error!("Unable to mount the FUSE filesystem"); std::process::exit(1); }
     }
-
-    {
-        let tx_fuse = tx.clone();
-        let env = env.clone();
-        let _ = std::thread::spawn(move || {
-            match fuse::mount(fs, &env.mountpoint, &fuse_options) {
-                Ok(()) => {},
-                _      => { error!("Unable to mount the FUSE filesystem"); std::process::exit(1); }
-            }
-            let _ = tx_fuse.send(());
-        });
-    }
-
-    rx.recv()?;
     cleanup(&env)?;
+    println!("Quitting");
 
     Ok(())
 }

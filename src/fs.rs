@@ -449,7 +449,7 @@ impl FustaFS {
             return;
         }
 
-        warn!("========== CONCRETIZING ========");
+        info!("========== CONCRETIZING ========");
         let mut index = 0;
         let mut last_start;
         let tmp_filename = format!("{}#fusta#", &self.filename);
@@ -471,7 +471,7 @@ impl FustaFS {
         trace!("Renaming {} to {}", tmp_filename, &self.filename);
         fs::rename(&tmp_filename, &self.filename)
             .unwrap_or_else(|_| panic!("Unable to rename `{}` to `{}`", &tmp_filename, &self.filename));
-        warn!("========== DONE ========");
+        info!("========== DONE ========");
         self.dirty = false;
     }
 
@@ -551,6 +551,11 @@ impl FustaFS {
 }
 
 
+impl Drop for FustaFS {
+    fn drop (&mut self) {
+        self.concretize();
+    }
+}
 impl Filesystem for FustaFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         let name = name.to_str().unwrap();
@@ -767,7 +772,6 @@ impl Filesystem for FustaFS {
                         // Only mark as dirty if we effectively removed something
                         if length_after != length_before { self.dirty = true; }
                         reply.ok();
-                        self.concretize();
                     } else {
                         warn!("UNLINK: unknown file: `{:?}`", name);
                         reply.error(ENOENT);
@@ -965,6 +969,7 @@ impl Filesystem for FustaFS {
 
 
     fn destroy(&mut self, _req: &Request) {
+        info!("DESTROYING");
         self.concretize()
     }
 
@@ -1030,7 +1035,7 @@ impl Filesystem for FustaFS {
 
     fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
         trace!("FLUSH");
-        self.concretize();
+        // self.concretize();
         reply.ok();
     }
 

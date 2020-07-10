@@ -845,11 +845,17 @@ impl Filesystem for FustaFS {
             // We write to an existing fragment
             if self.fragment_from_ino(ino).is_some() {
                 let mut fragment = self.mut_fragment_from_ino(ino).expect("Something went very wrong");
-
                 // As soon as there's a write, we have to switch to a buffer-backed storage
-                if !matches!(fragment.data, Backing::Buffer(_)) {
-                    fragment.data = Backing::Buffer(fragment.data().to_vec());
+                match fragment.data {
+                    Backing::Buffer(_) => {}
+                    _ => {
+                        fragment.data = Backing::Buffer(fragment.data().to_vec());
+                    }
                 }
+                // TODO Update when 1.44 is available
+                // if !matches!(fragment.data, Backing::Buffer(_)) {
+                //     fragment.data = Backing::Buffer(fragment.data().to_vec());
+                // }
 
                 // Ensure that the backing buffer is big enough
                 let max_size = offset as usize + data.len();
@@ -935,9 +941,16 @@ impl Filesystem for FustaFS {
                                 }
                             } else if size != self.fragment_from_ino(ino).map(Fragment::data_size).unwrap() { // Redim the file
                                 let mut fragment = self.mut_fragment_from_ino(ino).unwrap();
-                                if !matches!(fragment.data, Backing::Buffer(_)) {
-                                    fragment.data = Backing::Buffer(fragment.data().to_vec());
+                                match fragment.data {
+                                    Backing::Buffer(_) => {}
+                                    _ => {
+                                        fragment.data = Backing::Buffer(fragment.data().to_vec());
+                                    }
                                 }
+                                // TODO Update when 1.44 is available
+                                // if !matches!(fragment.data, Backing::Buffer(_)) {
+                                //     fragment.data = Backing::Buffer(fragment.data().to_vec());
+                                // }
                                 fragment.extend(size);
                                 fragment.refresh_virtual_files();
                                 self.dirty = true;

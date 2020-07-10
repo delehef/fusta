@@ -1,8 +1,7 @@
-with import <nixpkgs> {};
-stdenv.mkDerivation {
-  name = "env";
-  nativeBuildInputs = [ pkg-config ];
+{ pkgs ? import <nixpkgs> {} }:
+
+pkgs.mkShell {
   buildInputs = [
-    fuse
+    pkgs.fuse pkgs.cargo pkgs.pkg-config
   ];
 }

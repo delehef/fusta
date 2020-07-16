@@ -74,5 +74,6 @@ ARGS:
  asgart fusta/fasta/chrX.fa fusta/asgart/chrY.fa --out result.json
  #+end_src
 * Contact
+If you have any question or if you encounter a problem, do not hesitate to [[https://github.com/delehef/fusta/issues][open an issue]].
 * Acknowledgments
 FUSTA is standing on the shoulders of, among others, [[https://github.com/zargony/fuse-rs/][fuse-rs]], [[https://github.com/clap-rs/clap][clap]], [[https://github.com/danburkert/memmap-rs][memmap]] and [[https://github.com/knsd/daemonize][daemonize]].

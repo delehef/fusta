@@ -1,5 +1,8 @@
 * What is FUSTA?
 FUSTA is a FUSE-based virtual filesystem mirroring a (multi)FASTA file as a hierarchy of individual virtual files, simplifying efficient data extraction and bulk/automated processing of FASTA files.
+
+[[file:fusta.svg]]
+
 ** Licensing
 FUSTA is distributed under the CeCILL-C (LGPLv3 compatible) license. Please see the LICENSE file for details.
 * Getting Started

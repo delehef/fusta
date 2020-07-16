@@ -1,0 +1,408 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="279.97623mm"
+   height="161.37047mm"
+   viewBox="0 0 279.97623 161.37047"
+   version="1.1"
+   id="svg8"
+   inkscape:version="0.92.4 (5da689c313, 2019-01-14)"
+   sodipodi:docname="fusta.svg">
+  <defs
+     id="defs2">
+    <marker
+       inkscape:stockid="Arrow1Mend"
+       orient="auto"
+       refY="0"
+       refX="0"
+       id="Arrow1Mend"
+       style="overflow:visible"
+       inkscape:isstock="true">
+      <path
+         id="path11379"
+         d="M 0,0 5,-5 -12.5,0 5,5 Z"
+         style="fill:#000000;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:1.00000003pt;stroke-opacity:1"
+         transform="matrix(-0.4,0,0,-0.4,-4,0)"
+         inkscape:connector-curvature="0" />
+    </marker>
+    <marker
+       inkscape:stockid="Arrow1Lend"
+       orient="auto"
+       refY="0"
+       refX="0"
+       id="Arrow1Lend"
+       style="overflow:visible"
+       inkscape:isstock="true">
+      <path
+         id="path11373"
+         d="M 0,0 5,-5 -12.5,0 5,5 Z"
+         style="fill:#000000;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:1.00000003pt;stroke-opacity:1"
+         transform="matrix(-0.8,0,0,-0.8,-10,0)"
+         inkscape:connector-curvature="0" />
+    </marker>
+  </defs>
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="0.49497475"
+     inkscape:cx="68.821232"
+     inkscape:cy="623.67372"
+     inkscape:document-units="mm"
+     inkscape:current-layer="layer1"
+     showgrid="false"
+     showguides="false"
+     fit-margin-top="0"
+     fit-margin-left="0"
+     fit-margin-right="0"
+     fit-margin-bottom="0"
+     inkscape:window-width="1918"
+     inkscape:window-height="1178"
+     inkscape:window-x="1"
+     inkscape:window-y="1"
+     inkscape:window-maximized="0" />
+  <metadata
+     id="metadata5">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title></dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:label="Calque 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(85.53786,-61.918354)">
+    <g
+       id="g12268"
+       transform="matrix(1.6619849,0,0,1.6619849,-94.447162,98.925979)">
+      <text
+         id="text817"
+         y="17.092812"
+         x="6.8490329"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93888855px;line-height:1.25;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+         xml:space="preserve"><tspan
+           style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';fill:#000080;stroke-width:0.26458332"
+           y="17.092812"
+           x="6.8490329"
+           id="tspan815"
+           sodipodi:role="line">&gt;Seq1</tspan><tspan
+           id="tspan819"
+           style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';fill:#000080;stroke-width:0.26458332"
+           y="23.266422"
+           x="6.8490329"
+           sodipodi:role="line">ATTACGATCGTGC</tspan><tspan
+           id="tspan823"
+           style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';fill:#000080;stroke-width:0.26458332"
+           y="29.440033"
+           x="6.8490329"
+           sodipodi:role="line">TACGACTGACTTG</tspan><tspan
+           id="tspan825"
+           style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';fill:#d45500;stroke-width:0.26458332"
+           y="35.613644"
+           x="6.8490329"
+           sodipodi:role="line">&gt;Seq2</tspan><tspan
+           id="tspan827"
+           style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';fill:#d45500;stroke-width:0.26458332"
+           y="41.787254"
+           x="6.8490329"
+           sodipodi:role="line">TTTGCGCGCATGC</tspan><tspan
+           id="tspan829"
+           style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';fill:#d45500;stroke-width:0.26458332"
+           y="47.960865"
+           x="6.8490329"
+           sodipodi:role="line">CATG</tspan><tspan
+           id="tspan821"
+           style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';stroke-width:0.26458332"
+           y="54.134476"
+           x="6.8490329"
+           sodipodi:role="line" /></text>
+      <path
+         sodipodi:nodetypes="cccccccc"
+         inkscape:connector-curvature="0"
+         id="rect831"
+         d="M 28.420746,5.320031 H 5.572189 V 52.134464 H 39.881398 V 15.505309 L 28.420746,5.320031 v 10.185278 h 11.460652"
+         style="opacity:1;fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.42309886;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" />
+    </g>
+    <text
+       id="text11868"
+       y="132.76935"
+       x="89.58036"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93888855px;line-height:1.25;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       xml:space="preserve"><tspan
+         style="stroke-width:0.26458332"
+         y="137.33781"
+         x="89.58036"
+         id="tspan11866"
+         sodipodi:role="line"></tspan></text>
+    <g
+       id="g12178"
+       transform="translate(41.688297,-38.553582)">
+      <path
+         sodipodi:nodetypes="cccccccc"
+         inkscape:connector-curvature="0"
+         id="rect831-6-8-4"
+         d="m 129.61721,170.35385 h -22.84867 v 19.39475 h 34.30932 v -9.20946 l -11.46065,-10.18529 v 10.18529 h 11.46065"
+         style="opacity:1;fill:#d7e3f4;fill-opacity:1;stroke:#000000;stroke-width:0.42309886;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" />
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93888855px;line-height:1.25;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+         x="107.60938"
+         y="178.92706"
+         id="text11912"><tspan
+           sodipodi:role="line"
+           x="107.60938"
+           y="178.92706"
+           style="fill:#000080;stroke-width:0.26458332"
+           id="tspan11914">ATTACGATC</tspan><tspan
+           sodipodi:role="line"
+           x="107.60938"
+           y="185.10068"
+           style="fill:#000080;stroke-width:0.26458332"
+           id="tspan11916">TACGACTGACTTG</tspan><tspan
+           sodipodi:role="line"
+           x="107.60938"
+           y="191.27429"
+           style="fill:#000080;stroke-width:0.26458332"
+           id="tspan11924" /></text>
+    </g>
+    <g
+       id="g12171"
+       transform="translate(18.839737,-25.508836)">
+      <path
+         sodipodi:nodetypes="cccccccc"
+         inkscape:connector-curvature="0"
+         id="rect831-6-8-8"
+         d="m 163.92643,170.35385 h -22.84857 v 19.39475 h 34.30922 v -9.20947 l -11.46065,-10.18528 v 10.18528 h 11.46065"
+         style="opacity:1;fill:#ffe6d5;fill-opacity:1;stroke:#000000;stroke-width:0.42309886;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" />
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93888855px;line-height:1.25;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+         x="141.59679"
+         y="179.1821"
+         id="text11928"><tspan
+           sodipodi:role="line"
+           x="141.59679"
+           y="179.1821"
+           style="fill:#d45500;stroke-width:0.26458332"
+           id="tspan11936">TTTGCGCGC</tspan><tspan
+           sodipodi:role="line"
+           x="141.59679"
+           y="185.35571"
+           style="fill:#d45500;stroke-width:0.26458332"
+           id="tspan11938">CATG</tspan><tspan
+           sodipodi:role="line"
+           x="141.59679"
+           y="191.52933"
+           style="fill:#d45500;stroke-width:0.26458332"
+           id="tspan11940" /></text>
+    </g>
+    <path
+       style="opacity:1;fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.42309886;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       d="m 172.25275,192.43264 h -22.84856 v 30.64463 h 34.30921 v -20.45935 l -11.46065,-10.18528 v 10.18528 h 11.46065"
+       id="rect831-6"
+       inkscape:connector-curvature="0"
+       sodipodi:nodetypes="cccccccc" />
+    <g
+       id="g12146"
+       transform="translate(36.003327,-44.019427)">
+      <path
+         sodipodi:nodetypes="cccccccc"
+         inkscape:connector-curvature="0"
+         id="rect831-6-8"
+         d="m 135.30218,106.14933 h -22.84867 v 26.12024 h 34.30932 v -15.93496 l -11.46065,-10.18528 v 10.18528 h 11.46065"
+         style="opacity:1;fill:#d7e3f4;fill-opacity:1;stroke:#000000;stroke-width:0.42309886;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" />
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93888855px;line-height:1.25;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+         x="113.82341"
+         y="114.92841"
+         id="text11944"><tspan
+           sodipodi:role="line"
+           id="tspan11942"
+           x="113.82341"
+           y="114.92841"
+           style="fill:#000080;stroke-width:0.26458332">&gt;Seq1</tspan><tspan
+           sodipodi:role="line"
+           x="113.82341"
+           y="121.10202"
+           style="fill:#000080;stroke-width:0.26458332"
+           id="tspan11946">ATTACGATCGTGC</tspan><tspan
+           sodipodi:role="line"
+           x="113.82341"
+           y="127.27563"
+           style="fill:#000080;stroke-width:0.26458332"
+           id="tspan11956">TACGACTGACTTG</tspan></text>
+    </g>
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1.32291663;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:2.64583333, 1.32291667;stroke-dashoffset:0;stroke-opacity:1"
+       d="M 108.76622,86.087655 V 216.59582 h 32.83318"
+       id="path12080"
+       inkscape:connector-curvature="0"
+       sodipodi:nodetypes="ccc" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1.32291663;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:2.64583333, 1.32291667;stroke-dashoffset:0;stroke-opacity:1"
+       d="m 109.1442,152.49109 h 32.4552"
+       id="path12082"
+       inkscape:connector-curvature="0"
+       sodipodi:nodetypes="cc" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1.32291663;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:2.64583333, 1.32291667;stroke-dashoffset:0;stroke-opacity:1"
+       d="M 108.95521,86.194035 H 141.5994"
+       id="path12084"
+       inkscape:connector-curvature="0"
+       sodipodi:nodetypes="cc" />
+    <g
+       id="g12139"
+       transform="translate(4.941657,-45.093397)">
+      <path
+         sodipodi:nodetypes="cccccccc"
+         inkscape:connector-curvature="0"
+         id="rect831-6-3"
+         d="m 177.8245,123.15826 h -22.84856 v 26.12024 h 34.30921 V 133.34354 L 177.8245,123.15826 v 10.18528 h 11.46065"
+         style="opacity:1;fill:#ffe6d5;fill-opacity:1;stroke:#000000;stroke-width:0.42309886;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" />
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93888855px;line-height:1.25;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+         x="156.06183"
+         y="131.93735"
+         id="text11960"><tspan
+           sodipodi:role="line"
+           x="156.06183"
+           y="131.93735"
+           style="fill:#d45500;stroke-width:0.26458332"
+           id="tspan11966">&gt;Seq2</tspan><tspan
+           sodipodi:role="line"
+           x="156.06183"
+           y="138.11096"
+           style="fill:#d45500;stroke-width:0.26458332"
+           id="tspan11968">TTTGCGCGCATGC</tspan><tspan
+           sodipodi:role="line"
+           x="156.06183"
+           y="144.28458"
+           style="fill:#d45500;stroke-width:0.26458332"
+           id="tspan11970">CATG</tspan><tspan
+           sodipodi:role="line"
+           x="156.06183"
+           y="150.45818"
+           style="fill:#d45500;stroke-width:0.26458332"
+           id="tspan11972" /></text>
+    </g>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93888855px;line-height:1.25;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="111.10532"
+       y="149.36871"
+       id="text12203"><tspan
+         sodipodi:role="line"
+         id="tspan12201"
+         x="111.10532"
+         y="149.36871"
+         style="font-size:12.69999981px;stroke-width:0.26458332">Seqs</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93888855px;line-height:1.25;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="110.57616"
+       y="84.821777"
+       id="text12203-3"><tspan
+         sodipodi:role="line"
+         id="tspan12201-0"
+         x="110.57616"
+         y="84.821777"
+         style="font-size:12.69999981px;stroke-width:0.26458332">FASTA</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93888855px;line-height:1.25;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="109.59404"
+       y="215.47353"
+       id="text12203-4"><tspan
+         sodipodi:role="line"
+         id="tspan12201-4"
+         x="109.59404"
+         y="215.47353"
+         style="font-size:12.69999981px;stroke-width:0.26458332">Infos</tspan></text>
+    <g
+       id="g12249"
+       transform="translate(93.396782,-40.622186)">
+      <text
+         id="text817-3"
+         y="250.78075"
+         x="61.758568"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93888855px;line-height:1.25;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+         xml:space="preserve"><tspan
+           id="tspan821-9"
+           style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';stroke-width:0.26458332"
+           y="250.78075"
+           x="61.758568"
+           sodipodi:role="line">Seq1 26bp</tspan><tspan
+           id="tspan11289"
+           style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';stroke-width:0.26458332"
+           y="256.95435"
+           x="61.758568"
+           sodipodi:role="line">Seq2 17bp</tspan></text>
+      <g
+         id="g12237">
+        <path
+           style="fill:none;stroke:#000000;stroke-width:0.26458332px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+           d="M 61.137648,252.30431 H 85.186382"
+           id="path12231"
+           inkscape:connector-curvature="0"
+           sodipodi:nodetypes="cc" />
+        <path
+           style="fill:none;stroke:#000000;stroke-width:0.26458332px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+           d="m 72.665922,246.68192 v 11.29203"
+           id="path12233"
+           inkscape:connector-curvature="0" />
+      </g>
+    </g>
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1.32291663;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#Arrow1Mend)"
+       d="M -23.728479,152.49109 H 3.485807"
+       id="path12314"
+       inkscape:connector-curvature="0" />
+    <g
+       id="g12382"
+       transform="translate(24.455162,17.065532)">
+      <text
+         id="text12318"
+         y="140.27977"
+         x="-10.763893"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93888855px;line-height:1.25;font-family:'3270 Condensed';-inkscape-font-specification:'3270 Condensed, ';letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+         xml:space="preserve"><tspan
+           style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:14.11111069px;font-family:Metropolis;-inkscape-font-specification:Metropolis;stroke-width:0.26458332"
+           y="140.27977"
+           x="-10.763893"
+           id="tspan12316"
+           sodipodi:role="line">FUSE</tspan></text>
+      <rect
+         y="120.30651"
+         x="-17.231846"
+         height="30.238094"
+         width="49.892857"
+         id="rect12320"
+         style="opacity:1;fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.32299995;stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:2.646, 1.323;stroke-dashoffset:0;stroke-opacity:1" />
+    </g>
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1.32291663;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:2.64583336, 1.32291669;stroke-dashoffset:0;stroke-opacity:1"
+       d="M 57.884684,152.49109 H 109.1442"
+       id="path12082-4"
+       inkscape:connector-curvature="0"
+       sodipodi:nodetypes="cc" />
+  </g>
+</svg>

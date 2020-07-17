@@ -1,12 +1,31 @@
 * What is FUSTA?
 FUSTA is a FUSE-based virtual filesystem mirroring a (multi)FASTA file as a hierarchy of individual virtual files, simplifying efficient data extraction and bulk/automated processing of FASTA files.
 
-[[file:fusta.svg]]
+[[file:fusta.png]]
 
 ** Licensing
 FUSTA is distributed under the CeCILL-C (LGPLv3 compatible) license. Please see the LICENSE file for details.
 * Getting Started
 ** Installation
+*** FUSE
+FUSE (Filesystem in USErspace) is a software interface bridging userspace code and kernel routines allowing the use of file-based interfaces without inclusion in the kernel or administrator rights.
+**** GNU/Linux
+On most GNU/Linux distributions,  FUSE is installed by default. Otherwise, you can just install it from you package manager – note that a reboot might be nmecessary for the module to be loaded.
+**** macOS
+You should download and install [[https://osxfuse.github.io/][FUSE for macOS]] in order to be able to use FUSTA.
+**** FreeBSD
+First, some dependencies should be installed:
+#+begin_src
+pkg add rust pkgconf fusefs-libs
+#+end_src
+The FUSE kernel module has to be loaded:
+#+begin_src
+sudo kldload fuse
+#+end_src
+Finally, you may wish to enable FUSE mounting without requiring administrator permissions:
+#+begin_src
+sudo sysctl vfs.usermount=1
+#+end_src
 *** From Source
 **** Prerequisites
 To build FUSTA from sources, you need the [[https://www.rust-lang.org/en-US/install.html][Rust compiler]]. Once it has been installed, clone the repository:
@@ -16,6 +35,7 @@ git clone https://github.com/delehef/asgart.git
 **** Installation
 You can then build FUSTA by running =cargo=, the Rust build tool:
 #+begin_src
+cd fusta
 cargo build --release
 #+end_src
 Once the build has concluded, you will find the binary in =target/release/fusta=. It can be run form there or may be moved to a more standard location.

@@ -132,7 +132,14 @@ fn main() -> Result<()> {
         );
     }
 
-    let err_msg = format!("Please use `fusermount -u {:?}` or `umount` to exit.", &env.mountpoint.canonicalize().unwrap());
+
+    let err_msg = if cfg!(target_os = "freebsd") {
+        format!("Please use `umount {:?}` to exit.", &env.mountpoint.canonicalize().unwrap())
+    } else if cfg!(target_os = "macos") {
+        format!("Please use `umount {:?}` to exit.", &env.mountpoint.canonicalize().unwrap())
+    } else {
+        format!("Please use `fusermount -u {0:?}` or `umount {0:?}` to exit.", &env.mountpoint.canonicalize().unwrap())
+    };
     ctrlc::set_handler(move || {
         error!("{}", err_msg);
     })?;

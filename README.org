@@ -10,7 +10,7 @@ FUSTA is distributed under the CeCILL-C (LGPLv3 compatible) license. Please see 
 *** FUSE
 FUSE (Filesystem in USErspace) is a software interface bridging userspace code and kernel routines allowing the use of file-based interfaces without inclusion in the kernel or administrator rights.
 **** GNU/Linux
-On most GNU/Linux distributions,  FUSE is installed by default. Otherwise, you can just install it from you package manager – note that a reboot might be nmecessary for the module to be loaded.
+On most GNU/Linux distributions,  FUSE is installed by default. Otherwise, you should install it from your package manager – note that a reboot might be necessary for the kernel module to be loaded.
 **** macOS
 You should download and install [[https://osxfuse.github.io/][FUSE for macOS]] in order to be able to use FUSTA.
 **** FreeBSD
@@ -18,7 +18,7 @@ First, some dependencies should be installed:
 #+begin_src
 pkg add rust pkgconf fusefs-libs
 #+end_src
-The FUSE kernel module has to be loaded:
+The FUSE kernel module has then to be loaded:
 #+begin_src
 sudo kldload fuse
 #+end_src

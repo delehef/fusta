@@ -39,6 +39,13 @@ fn main() -> Result<()> {
              .takes_value(true)
              .required(true))
 
+        .arg(Arg::with_name("max-cache")
+             .short("C")
+             .long("max-cache")
+             .help("Set the maximum amount of memory to use to cache writes (MB)")
+             .default_value("500")
+             .takes_value(true))
+
         .arg(Arg::with_name("v")
              .short("v")
              .multiple(true)
@@ -103,6 +110,7 @@ fn main() -> Result<()> {
     ];
     let settings = FustaSettings {
         mmap: args.is_present("mmap"),
+        concretize_threshold: value_t!(args, "max-cache", usize).unwrap()*1024*1024,
     };
 
     info!("Using MMAP:      {}", settings.mmap);

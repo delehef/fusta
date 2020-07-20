@@ -291,6 +291,7 @@ impl Fragment {
 
 pub struct FustaSettings {
     pub mmap: bool,
+    pub concretize_threshold: usize,
 }
 
 #[derive(Debug)]
@@ -443,18 +444,31 @@ impl FustaFS {
         self.make_labels_buffer();
     }
 
-    fn concretize(&mut self) {
+    fn concretize(&mut self, force: bool) {
         if !self.dirty {
             debug!("CONCRETIZE: nothing to do");
+            return;
+        }
+
+        let in_memory = self.fragments.iter()
+            .fold(0, |ax, f| {
+                ax + match &f.data {
+                    Backing::Buffer(b) => b.len(),
+                    _ =>  0
+                }});
+
+        if !force && in_memory < self.settings.concretize_threshold {
+            info!("Using {:.2}MB out of {}; skipping concretization",
+                  in_memory/(1024*1024), self.settings.concretize_threshold/(1024*1024));
             return;
         }
 
         info!("========== CONCRETIZING ========");
         let mut index = 0;
         let mut last_start;
+        trace!("Writing fragments");
         let tmp_filename = format!("{}#fusta#", &self.filename);
         { // Scope to ensure the tmp file is correctly closed
-            trace!("Writing fragments");
             let mut tmp_file = fs::File::create(&tmp_filename).unwrap_or_else(|_| panic!("Unable to create `{}`", tmp_filename));
             for fragment in self.fragments.iter_mut() {
                 trace!("Writing {}", fragment.id);
@@ -553,7 +567,7 @@ impl FustaFS {
 
 impl Drop for FustaFS {
     fn drop (&mut self) {
-        self.concretize();
+        self.concretize(true);
     }
 }
 impl Filesystem for FustaFS {
@@ -771,6 +785,7 @@ impl Filesystem for FustaFS {
                         let length_after = self.fragments.len();
                         // Only mark as dirty if we effectively removed something
                         if length_after != length_before { self.dirty = true; }
+                        self.concretize(false);
                         reply.ok();
                     } else {
                         warn!("UNLINK: unknown file: `{:?}`", name);
@@ -983,7 +998,7 @@ impl Filesystem for FustaFS {
 
     fn destroy(&mut self, _req: &Request) {
         info!("DESTROYING");
-        self.concretize()
+        self.concretize(false)
     }
 
     fn rename(&mut self, _req: &Request, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr, reply: ReplyEmpty) {
@@ -1018,7 +1033,7 @@ impl Filesystem for FustaFS {
                             fragment.rename(&new_id);
                             info!("Renaming {:?} -> {:?}", name, newname);
                             self.dirty = true;
-                            self.concretize();
+                            self.concretize(false);
                             reply.ok()
                         } else {
                             warn!("\t{:?} does not exist", name);
@@ -1036,13 +1051,13 @@ impl Filesystem for FustaFS {
 
     fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
         trace!("FSYNC");
-        self.concretize();
+        self.concretize(false);
         reply.ok();
     }
 
     fn fsyncdir (&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
         trace!("FSYNCDIR");
-        self.concretize();
+        self.concretize(false);
         reply.ok();
     }
 
@@ -1099,7 +1114,7 @@ impl Filesystem for FustaFS {
                             }))
                 }
             }
-            self.concretize();
+            self.concretize(false);
         } else {
             debug!("Not a writeable file; ignoring")
         }

@@ -1,18 +1,14 @@
 #![allow(clippy::redundant_field_names)]
 use std::ffi::OsStr;
 
+use anyhow::{bail, Context, Result};
+use clap::*;
 use daemonize::*;
-use anyhow::{Result, bail, Context};
 use log::*;
 use simplelog::*;
-use clap::*;
 
 pub mod fs;
 use fs::*;
-
-
-
-
 
 #[derive(Debug, Clone)]
 struct RunEnvironment {
@@ -20,51 +16,59 @@ struct RunEnvironment {
     created_mountpoint: bool,
 }
 fn main() -> Result<()> {
-    let args = App::new("fusta")
-        .setting(AppSettings::ColoredHelp)
-        .setting(AppSettings::ColorAuto)
-        .setting(AppSettings::VersionlessSubcommands)
-        .setting(AppSettings::UnifiedHelpMessage)
-        .version(crate_version!())
-        .author(crate_authors!())
-        .arg(Arg::with_name("FASTA")
-             .help("A (multi)FASTA file containing the sequences to mount")
-             .required(true)
-             .index(1))
-        .arg(Arg::with_name("mountpoint")
-             .short("o")
-             .long("mountpoint")
-             .help("Specifies the directory to use as mountpoint")
-             .default_value("fusta")
-             .takes_value(true)
-             .required(true))
-
-        .arg(Arg::with_name("max-cache")
-             .short("C")
-             .long("max-cache")
-             .help("Set the maximum amount of memory to use to cache writes (MB)")
-             .default_value("500")
-             .takes_value(true))
-
-        .arg(Arg::with_name("v")
-             .short("v")
-             .multiple(true)
-             .help("Sets the level of verbosity"))
-        .arg(Arg::with_name("daemon")
-             .short("D")
-             .long("daemon")
-             .help("Launch in the background; will automatically quit when unmounted"))
-
-        .arg(Arg::with_name("mmap")
-             .short("M")
-             .long("mmap")
-             .help("Use mmap instead of seek to extract sequences. Faster, but memory hungrier."))
-
-        .arg(Arg::with_name("nonempty")
-             .short("E")
-             .long("non-empty")
-             .help("Perform the mount even if the destination folder is not empty"))
-        .get_matches();
+    let args =
+        App::new("fusta")
+            .setting(AppSettings::ColoredHelp)
+            .setting(AppSettings::ColorAuto)
+            .setting(AppSettings::VersionlessSubcommands)
+            .setting(AppSettings::UnifiedHelpMessage)
+            .version(crate_version!())
+            .author(crate_authors!())
+            .arg(
+                Arg::with_name("FASTA")
+                    .help("A (multi)FASTA file containing the sequences to mount")
+                    .required(true)
+                    .index(1),
+            )
+            .arg(
+                Arg::with_name("mountpoint")
+                    .short("o")
+                    .long("mountpoint")
+                    .help("Specifies the directory to use as mountpoint")
+                    .default_value("fusta")
+                    .takes_value(true)
+                    .required(true),
+            )
+            .arg(
+                Arg::with_name("max-cache")
+                    .short("C")
+                    .long("max-cache")
+                    .help("Set the maximum amount of memory to use to cache writes (MB)")
+                    .default_value("500")
+                    .takes_value(true),
+            )
+            .arg(
+                Arg::with_name("v")
+                    .short("v")
+                    .multiple(true)
+                    .help("Sets the level of verbosity"),
+            )
+            .arg(
+                Arg::with_name("daemon")
+                    .short("D")
+                    .long("daemon")
+                    .help("Launch in the background; will automatically quit when unmounted"),
+            )
+            .arg(Arg::with_name("mmap").short("M").long("mmap").help(
+                "Use mmap instead of seek to extract sequences. Faster, but memory hungrier.",
+            ))
+            .arg(
+                Arg::with_name("nonempty")
+                    .short("E")
+                    .long("non-empty")
+                    .help("Perform the mount even if the destination folder is not empty"),
+            )
+            .get_matches();
 
     let log_level = match args.occurrences_of("v") {
         0 => LevelFilter::Warn,
@@ -72,9 +76,7 @@ fn main() -> Result<()> {
         2 => LevelFilter::Debug,
         _ => LevelFilter::Trace,
     };
-    let log_config = ConfigBuilder::new()
-        .set_time_format_str("")
-        .build();
+    let log_config = ConfigBuilder::new().set_time_format_str("").build();
 
     if args.is_present("daemon") {
         let log_file_path = tempfile::Builder::new()
@@ -83,11 +85,13 @@ fn main() -> Result<()> {
             .tempfile()
             .context("Unable to create a temporary file")?;
 
-        println!("Logs ({:?}) available in {:?}", log_level, log_file_path.path());
-        WriteLogger::init(
-            log_level, log_config,
-            log_file_path
-        ).context("Unable to initialize logger")?;
+        println!(
+            "Logs ({:?}) available in {:?}",
+            log_level,
+            log_file_path.path()
+        );
+        WriteLogger::init(log_level, log_config, log_file_path)
+            .context("Unable to initialize logger")?;
 
         let mut pid_file = std::env::temp_dir();
         pid_file.push("fusta.pid");
@@ -97,20 +101,21 @@ fn main() -> Result<()> {
             .working_directory(std::env::current_dir().context("Unable to read current directory")?)
             .start()?;
     } else {
-        TermLogger::init(log_level, log_config, TerminalMode::Mixed).context("Unable to initialize logger")?;
+        TermLogger::init(log_level, log_config, TerminalMode::Mixed)
+            .context("Unable to initialize logger")?;
     }
-
-
 
     let fasta_file = value_t!(args, "FASTA", String)?;
     let mountpoint = value_t!(args, "mountpoint", String)?;
     let mut fuse_options: Vec<&OsStr> = vec![
-        &OsStr::new("-o"), &OsStr::new("auto_unmount"),
-        &OsStr::new("-o"), &OsStr::new("default_permissions"),
+        &OsStr::new("-o"),
+        &OsStr::new("auto_unmount"),
+        &OsStr::new("-o"),
+        &OsStr::new("default_permissions"),
     ];
     let settings = FustaSettings {
         mmap: args.is_present("mmap"),
-        concretize_threshold: value_t!(args, "max-cache", usize).unwrap()*1024*1024,
+        concretize_threshold: value_t!(args, "max-cache", usize).unwrap() * 1024 * 1024,
     };
 
     info!("Using MMAP:      {}", settings.mmap);
@@ -140,20 +145,31 @@ fn main() -> Result<()> {
         );
     }
 
-
     let err_msg = if cfg!(target_os = "freebsd") {
-        format!("Please use `umount {:?}` to exit.", &env.mountpoint.canonicalize().unwrap())
+        format!(
+            "Please use `umount {:?}` to exit.",
+            &env.mountpoint.canonicalize().unwrap()
+        )
     } else if cfg!(target_os = "macos") {
-        format!("Please use `umount {:?}` to exit.", &env.mountpoint.canonicalize().unwrap())
+        format!(
+            "Please use `umount {:?}` to exit.",
+            &env.mountpoint.canonicalize().unwrap()
+        )
     } else {
-        format!("Please use `fusermount -u {0:?}` or `umount {0:?}` to exit.", &env.mountpoint.canonicalize().unwrap())
+        format!(
+            "Please use `fusermount -u {0:?}` or `umount {0:?}` to exit.",
+            &env.mountpoint.canonicalize().unwrap()
+        )
     };
     ctrlc::set_handler(move || {
         error!("{}", err_msg);
     })?;
     match fuse::mount(fs, &env.mountpoint, &fuse_options) {
-        Ok(()) => {},
-        _      => { error!("Unable to mount the FUSE filesystem"); std::process::exit(1); }
+        Ok(()) => {}
+        _ => {
+            error!("Unable to mount the FUSE filesystem");
+            std::process::exit(1);
+        }
     }
     cleanup(&env)?;
     println!("Quitting");
@@ -163,7 +179,10 @@ fn main() -> Result<()> {
 
 fn cleanup(env: &RunEnvironment) -> Result<()> {
     if env.created_mountpoint {
-        warn!("You can now safely remove the {:?} directory", env.mountpoint);
+        warn!(
+            "You can now safely remove the {:?} directory",
+            env.mountpoint
+        );
     }
     Ok(())
 }

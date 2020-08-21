@@ -1,5 +1,5 @@
-use std::io::{BufReader, Lines};
 use std::io::prelude::*;
+use std::io::{BufReader, Lines};
 
 #[derive(Debug)]
 pub struct Fragment {
@@ -41,10 +41,14 @@ impl<T: Read> Iterator for FastaReader<T> {
                     let split = current_header.split(' ').collect::<Vec<_>>();
                     let r = Fragment {
                         id: split[0].to_string(),
-                        name: if split.len() > 1 { Some(split[1..].join(" ")) } else { None },
+                        name: if split.len() > 1 {
+                            Some(split[1..].join(" "))
+                        } else {
+                            None
+                        },
 
                         pos: (self.current_start, self.current_offset - len),
-                        len: self.current_offset - self.current_start - len
+                        len: self.current_offset - self.current_start - len,
                     };
                     self.current_header = Some(String::from(&line[1..]));
 
@@ -53,7 +57,7 @@ impl<T: Read> Iterator for FastaReader<T> {
                     return Some(r);
                 } else {
                     self.current_header = Some(String::from(&line[1..]));
-                    self.current_start = self.current_offset ;
+                    self.current_start = self.current_offset;
                 }
                 continue;
             }
@@ -63,7 +67,11 @@ impl<T: Read> Iterator for FastaReader<T> {
             let split = current_header.split(' ').collect::<Vec<_>>();
             let r = Fragment {
                 id: split[0].to_string(),
-                name: if split.len() > 1 { Some(split[1..].join(" ")) } else { None },
+                name: if split.len() > 1 {
+                    Some(split[1..].join(" "))
+                } else {
+                    None
+                },
                 pos: (self.current_start, self.current_offset),
                 len: self.current_offset - self.current_start,
             };

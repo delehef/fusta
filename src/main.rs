@@ -93,8 +93,11 @@ fn main() -> Result<()> {
         WriteLogger::init(log_level, log_config, log_file_path)
             .context("Unable to initialize logger")?;
 
-        let mut pid_file = std::env::temp_dir();
-        pid_file.push("fusta.pid");
+        let pid_file = tempfile::Builder::new()
+            .prefix("fusta-")
+            .suffix(".pid")
+            .tempfile()
+            .context("Unable to create a temporary PID file")?;
 
         Daemonize::new()
             .pid_file(pid_file)

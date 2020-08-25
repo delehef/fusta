@@ -29,6 +29,8 @@ const APPEND_DIR: u64 = 4;
 // Pure virtual files
 const INFO_FILE: u64 = 10;
 const INFO_FILE_NAME: &str = "infos.txt";
+const INFO_CSV_FILE: u64 = 12;
+const INFO_CSV_FILE_NAME: &str = "infos.csv";
 const LABELS_FILE: u64 = 11;
 const LABELS_FILE_NAME: &str = "labels.txt";
 
@@ -389,6 +391,13 @@ impl FustaFS {
                     _data: Vec::new(),
                 }),
                 Box::new(BufferFile {
+                    name: INFO_CSV_FILE_NAME.to_owned(),
+                    ino: INFO_CSV_FILE,
+                    attrs: FustaFS::make_file_attrs(INFO_CSV_FILE, 0o444),
+                    class: FileClass::Text,
+                    _data: Vec::new(),
+                }),
+                Box::new(BufferFile {
                     name: LABELS_FILE_NAME.to_owned(),
                     ino: LABELS_FILE,
                     attrs: FustaFS::make_file_attrs(LABELS_FILE, 0o444),
@@ -498,6 +507,7 @@ impl FustaFS {
             })
             .collect::<Vec<_>>();
         self.make_info_buffer();
+        self.make_info_csv_buffer();
         self.make_labels_buffer();
     }
 
@@ -618,9 +628,30 @@ impl FustaFS {
         let size = content.as_bytes().len() as u64;
         self.get_file(INFO_FILE).and_then(|x| {
             x.set_data(content.as_bytes());
+            x.mut_attrs().size = size;
             Some(())
         });
-        self.get_file(INFO_FILE).and_then(|x| {
+    }
+
+    fn make_info_csv_buffer(&mut self) {
+        trace!("Making INFO_CSV BUFFER");
+        let header = "id,name,length";
+        let infos = self
+            .fragments
+            .iter()
+            .map(|f| {
+                format!(
+                    "{},{},{}",
+                    f.id.to_owned(),
+                    f.name.as_ref().unwrap_or(&"".to_string()).to_owned(),
+                    f.data_size()
+                )
+            })
+            .collect::<Vec<_>>();
+        let content = format!("{}\n{}", header, infos.join("\n"));
+        let size = content.as_bytes().len() as u64;
+        self.get_file(INFO_CSV_FILE).and_then(|x| {
+            x.set_data(content.as_bytes());
             x.mut_attrs().size = size;
             Some(())
         });
@@ -637,9 +668,6 @@ impl FustaFS {
         let size = content.as_bytes().len() as u64;
         self.get_file(LABELS_FILE).and_then(|x| {
             x.set_data(content.as_bytes());
-            Some(())
-        });
-        self.get_file(LABELS_FILE).and_then(|x| {
             x.mut_attrs().size = size;
             Some(())
         });
@@ -684,6 +712,9 @@ impl Filesystem for FustaFS {
                 INFO_FILE_NAME => {
                     reply.entry(&TTL, &self.get_file(INFO_FILE).unwrap().attrs(), 0);
                 }
+                INFO_CSV_FILE_NAME => {
+                    reply.entry(&TTL, &self.get_file(INFO_CSV_FILE).unwrap().attrs(), 0);
+                }
                 LABELS_FILE_NAME => {
                     reply.entry(&TTL, &self.get_file(LABELS_FILE).unwrap().attrs(), 0);
                 }
@@ -714,6 +745,7 @@ impl Filesystem for FustaFS {
                 reply.attr(&TTL, &self.dir_attrs.get(&ino).unwrap())
             }
             INFO_FILE => reply.attr(&TTL, &self.get_file(INFO_FILE).unwrap().attrs()),
+            INFO_CSV_FILE => reply.attr(&TTL, &self.get_file(INFO_CSV_FILE).unwrap().attrs()),
             LABELS_FILE => reply.attr(&TTL, &self.get_file(LABELS_FILE).unwrap().attrs()),
             _ => {
                 if let Some(file) = self
@@ -743,6 +775,13 @@ impl Filesystem for FustaFS {
             INFO_FILE => {
                 self.make_info_buffer();
                 let data = self.get_file(INFO_FILE).unwrap().data();
+                let start = offset as usize;
+                let end = std::cmp::min(start + size as usize, data.len());
+                reply.data(&data[start..end]);
+            }
+            INFO_CSV_FILE => {
+                self.make_info_csv_buffer();
+                let data = self.get_file(INFO_CSV_FILE).unwrap().data();
                 let start = offset as usize;
                 let end = std::cmp::min(start + size as usize, data.len());
                 reply.data(&data[start..end]);
@@ -831,6 +870,7 @@ impl Filesystem for FustaFS {
                     SEQ_DIR    => (FileType::Directory, "seqs".to_owned()),
                     APPEND_DIR => (FileType::Directory, "append".to_owned()),
                     INFO_FILE  => (FileType::RegularFile, INFO_FILE_NAME.to_owned()),
+                    INFO_CSV_FILE  => (FileType::RegularFile, INFO_CSV_FILE_NAME.to_owned()),
                     LABELS_FILE  => (FileType::RegularFile, LABELS_FILE_NAME.to_owned()),
                 };
                 for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
@@ -1090,7 +1130,7 @@ impl Filesystem for FustaFS {
 
         match ino {
             ROOT_DIR | SEQ_DIR | FASTA_DIR => reply.error(EACCES),
-            INFO_FILE => reply.error(EACCES),
+            INFO_FILE | INFO_CSV_FILE | LABELS_FILE => reply.error(EACCES),
             _ => {
                 if self.fragment_from_ino(ino).is_some() {
                     if self

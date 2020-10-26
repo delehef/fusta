@@ -51,6 +51,32 @@ fusermount -u fusta
 #+end_src
 ** Description
 Once started, =fusta= will expose the content of a FASTA file in a way that makes it usable by any piece of software using as if it were a set of independent files, detailed as follow.
+
+As a helper, here is the virtual hierarchy created by =fusta= after mounting a FASTA file containing /A. thaliana/ genome
+#+begin_src
+fusta
+├── append
+├── fasta
+│   ├── 1.fa
+│   ├── 2.fa
+│   ├── 3.fa
+│   ├── 4.fa
+│   ├── 5.fa
+│   ├── Mt.fa
+│   └── Pt.fa
+├── get
+├── infos.csv
+├── infos.txt
+├── labels.txt
+└── seqs
+    ├── 1.seq
+    ├── 2.seq
+    ├── 3.seq
+    ├── 4.seq
+    ├── 5.seq
+    ├── Mt.seq
+    └── Pt.seq
+#+end_src
 *** =infos.csv=
 This read-only CSV file contains a list of all the fragments present in the mounted FASTA file, with, for each of them, the standard =id= and =additional informations= field, plus a third one for the length of the sequence.
 *** =infos.txt=
@@ -108,10 +134,13 @@ USAGE:
 OPTIONS:
     -D, --daemon                     Launch in the background; will automatically quit when unmounted
     -h, --help                       Prints help information
-    -M, --mmap                       Use mmap instead of seek to extract sequences. Faster, but memory hungrier.
-    -o, --mountpoint <mountpoint>    Specifies the directory to use as mountpoint [default: fusta]
+    -C, --max-cache <max-cache>      Set the maximum amount of memory to use to cache writes (MB) [default: 500]
+    -o, --mountpoint <mountpoint>    Specifies the directory to use as mountpoint; it will be created if it does not
+                                     exist [default: fusta]
+    -M, --nommap                     Don't use mmap, but rather fseek(2) to extract sequences. Slower, but more memory-
+                                     efficient.
     -E, --non-empty                  Perform the mount even if the destination folder is not empty
-    -v, -vv, -vvv                    Sets the level of verbosity
+    -v                               Sets the level of verbosity
     -V, --version                    Prints version information
 
 ARGS:
@@ -122,6 +151,8 @@ If you have any question or if you encounter a problem, do not hesitate to [[htt
 * Acknowledgments
 FUSTA is standing on the shoulders of, among others, [[https://github.com/zargony/fuse-rs/][fuse-rs]], [[https://github.com/clap-rs/clap][clap]], [[https://github.com/danburkert/memmap-rs][memmap]] and [[https://github.com/knsd/daemonize][daemonize]].
 * Changelog
+** v1.1.1
+- Use MMAP by default. While it may lead to unpleasant load when performing heavy operation on very large files, this should be a rather uncommon case.
 ** v1.1
 - FUSTA can now directly extract ranges from a sequence
 ** v1.0

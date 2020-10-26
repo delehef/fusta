@@ -35,7 +35,7 @@ fn main() -> Result<()> {
                 Arg::with_name("mountpoint")
                     .short("o")
                     .long("mountpoint")
-                    .help("Specifies the directory to use as mountpoint")
+                    .help("Specifies the directory to use as mountpoint; it will be created if it does not exist")
                     .default_value("fusta")
                     .takes_value(true)
                     .required(true),
@@ -60,8 +60,8 @@ fn main() -> Result<()> {
                     .long("daemon")
                     .help("Launch in the background; will automatically quit when unmounted"),
             )
-            .arg(Arg::with_name("mmap").short("M").long("mmap").help(
-                "Use mmap instead of seek to extract sequences. Faster, but memory hungrier.",
+            .arg(Arg::with_name("nommap").short("M").long("nommap").help(
+                "Don't use mmap, but rather fseek(2) to extract sequences. Slower, but more memory-efficient.",
             ))
             .arg(
                 Arg::with_name("nonempty")
@@ -118,7 +118,7 @@ fn main() -> Result<()> {
         &OsStr::new("default_permissions"),
     ];
     let settings = FustaSettings {
-        mmap: args.is_present("mmap"),
+        mmap: !args.is_present("nommap"),
         concretize_threshold: value_t!(args, "max-cache", usize).unwrap() * 1024 * 1024,
     };
 

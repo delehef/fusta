@@ -3,13 +3,13 @@ use fuse::*;
 use libc::*;
 use log::*;
 use maplit::*;
+use regex::Regex;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::time::{Duration, SystemTime};
-use regex::Regex;
 
 use std::io::prelude::*;
 use std::io::SeekFrom;
@@ -322,24 +322,22 @@ impl Fragment {
                     .collect::<Vec<_>>()
                     .into()
             }
-            Backing::Buffer(ref b) => {
-                b.iter()
-                    .cloned()
-                    .filter(|&c| c != b'\n')
-                    .skip(offset as usize)
-                    .take(size as usize)
-                    .collect::<Vec<_>>()
-                    .into()
-            }
-            Backing::MMap(ref mmap) => {
-                mmap.iter()
-                    .cloned()
-                    .filter(|&c| c != b'\n')
-                    .skip(offset as usize)
-                    .take(size as usize)
-                    .collect::<Vec<_>>()
-                    .into()
-            }
+            Backing::Buffer(ref b) => b
+                .iter()
+                .cloned()
+                .filter(|&c| c != b'\n')
+                .skip(offset as usize)
+                .take(size as usize)
+                .collect::<Vec<_>>()
+                .into(),
+            Backing::MMap(ref mmap) => mmap
+                .iter()
+                .cloned()
+                .filter(|&c| c != b'\n')
+                .skip(offset as usize)
+                .take(size as usize)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 
@@ -394,7 +392,6 @@ struct PendingAppend {
     seq_ino: u64,
 }
 
-
 #[derive(Debug)]
 struct SubFragment {
     fragment: String,
@@ -405,7 +402,15 @@ struct SubFragment {
 impl SubFragment {
     fn new(fragment: &str, start: usize, end: usize, attrs: FileAttr) -> SubFragment {
         let end = if end < start {
-            info!("{}:{}-{}: {} < {}; using {} instead", fragment, start, end, end, start, std::cmp::max(start, end));
+            info!(
+                "{}:{}-{}: {} < {}; using {} instead",
+                fragment,
+                start,
+                end,
+                end,
+                start,
+                std::cmp::max(start, end)
+            );
             std::cmp::max(start, end)
         } else {
             end
@@ -670,9 +675,7 @@ impl FustaFS {
     }
 
     fn subfragment_from_ino(&self, ino: u64) -> Option<&SubFragment> {
-        self.subfragments
-            .iter()
-            .find(|sf| sf.attrs.ino == ino)
+        self.subfragments.iter().find(|sf| sf.attrs.ino == ino)
     }
 
     fn make_info_buffer(&mut self) {
@@ -770,14 +773,23 @@ impl FustaFS {
     fn create_subfragment(&mut self, name: &str) -> Result<FileAttr, String> {
         let error_message = format!("`{}` is not a valid subfragment scheme", name);
 
-        let caps = SUBFRAGMENT_RE.captures(name).ok_or_else(|| format!("{}: it should be of the form ID:START-END", error_message))?;
+        let caps = SUBFRAGMENT_RE
+            .captures(name)
+            .ok_or_else(|| format!("{}: it should be of the form ID:START-END", error_message))?;
         if caps.len() == 4 {
             let ino = self.new_ino();
-            let fragment_id = self.fragment_from_id(&caps[1]).ok_or_else(|| format!("`{}` is not a fragment", &caps[1]))?.id.clone();
-            let start = str::parse::<usize>(&caps[2]).map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[1]))?;
-            let end = str::parse::<usize>(&caps[3]).map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[2]))?;
+            let fragment_id = self
+                .fragment_from_id(&caps[1])
+                .ok_or_else(|| format!("`{}` is not a fragment", &caps[1]))?
+                .id
+                .clone();
+            let start = str::parse::<usize>(&caps[2])
+                .map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[1]))?;
+            let end = str::parse::<usize>(&caps[3])
+                .map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[2]))?;
 
-            self.subfragments.iter()
+            self.subfragments
+                .iter()
                 .find(|sf| sf.fragment == fragment_id && sf.start == start && sf.end == end)
                 .map(|sf| sf.attrs.clone())
                 .or_else(|| {
@@ -789,7 +801,7 @@ impl FustaFS {
                 })
                 .ok_or_else(|| unimplemented!())
 
-            // Ok(attrs)
+        // Ok(attrs)
         } else {
             Err(error_message)
         }
@@ -840,7 +852,7 @@ impl Filesystem for FustaFS {
                 } else {
                     reply.error(ENOENT);
                 }
-            },
+            }
             SUBFRAGMENTS_DIR => {
                 let sf = self.create_subfragment(name);
                 match sf {
@@ -870,7 +882,7 @@ impl Filesystem for FustaFS {
             LABELS_FILE => reply.attr(&TTL, &self.get_file(LABELS_FILE).unwrap().attrs()),
             ino if self.subfragment_from_ino(ino).is_some() => {
                 reply.attr(&TTL, &self.subfragment_from_ino(ino).unwrap().attrs);
-            },
+            }
             _ => {
                 if let Some(file) = self
                     .fragment_from_ino(ino)
@@ -937,8 +949,8 @@ impl Filesystem for FustaFS {
                         } else {
                             let end = offset as usize + size as usize;
                             let label = fragment.label();
-                            let data_chunk = fragment
-                                .chunk(0, std::cmp::min(fragment.data_size() as u32, size));
+                            let data_chunk =
+                                fragment.chunk(0, std::cmp::min(fragment.data_size() as u32, size));
                             match fragment
                                 .mut_file_from_ino(ino)
                                 .expect("No file linked to this fragment")
@@ -958,7 +970,7 @@ impl Filesystem for FustaFS {
                                     }
                                     reply.data(
                                         &header_buffer.borrow()[offset as usize
-                                                                ..std::cmp::min(end, header_buffer.borrow().len())],
+                                            ..std::cmp::min(end, header_buffer.borrow().len())],
                                     );
                                 }
                                 _ => panic!("WTF"),
@@ -966,13 +978,15 @@ impl Filesystem for FustaFS {
                         }
                     }
                     FileClass::Seq => reply.data(&fragment.chunk(offset, size)),
-                    FileClass::Text => unimplemented!() // A fragment can never refer to a text file
+                    FileClass::Text => unimplemented!(), // A fragment can never refer to a text file
                 }
             }
             ino if self.subfragment_from_ino(ino).is_some() => {
                 let subfragment = self.subfragment_from_ino(ino).unwrap();
                 match self.fragment_from_id(&subfragment.fragment) {
-                    Some(fragment) => reply.data(&fragment.true_chunk(offset + subfragment.start as i64, size)),
+                    Some(fragment) => {
+                        reply.data(&fragment.true_chunk(offset + subfragment.start as i64, size))
+                    }
                     _ => {
                         error!("No fragment linked to ino {}", ino);
                         reply.error(ENOENT);

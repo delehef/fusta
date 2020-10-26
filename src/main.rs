@@ -1,4 +1,5 @@
 #![allow(clippy::redundant_field_names)]
+#[macro_use] extern crate lazy_static;
 use std::ffi::OsStr;
 
 use anyhow::{bail, Context, Result};

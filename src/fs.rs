@@ -242,7 +242,7 @@ impl Fragment {
         self.fasta_file.name = format!("{}{}", self.id, FASTA_EXT).into();
         self.fasta_file.attrs.size = (self.label_size() + self.data_size()) as u64;
 
-        self.seq_file.name = format!("{}.{}", self.id, SEQ_EXT).into();
+        self.seq_file.name = format!("{}{}", self.id, SEQ_EXT).into();
         self.seq_file.attrs.size = self.data_size() as u64;
     }
 
@@ -667,7 +667,7 @@ impl FustaFS {
     }
 
     fn fragment_from_id(&self, id: &str) -> Option<&Fragment> {
-        self.fragments.iter().find(|f| f.id == id)
+        self.name_to_fragment.get(id).map(|&i| &self.fragments[i])
     }
 
     fn fragment_from_ino(&self, ino: u64) -> Option<&Fragment> {
@@ -696,10 +696,22 @@ impl FustaFS {
             .map(|&i| &self.fragments[i])
     }
 
-    fn mut_fragment_from_filename(&mut self, name: &str) -> Option<&mut Fragment> {
-        self.fragments
-            .iter_mut()
-            .find(|f| f.fasta_file.name == name || f.seq_file.name == name)
+    fn mut_fragment_from_seq_filename(&mut self, name: &str) -> Option<&mut Fragment> {
+        let id = name.strip_suffix(SEQ_EXT).unwrap();
+        if let Some(i) = self.name_to_fragment.get(id) {
+            Some(&mut self.fragments[*i])
+        } else {
+            None
+        }
+    }
+
+    fn mut_fragment_from_fasta_filename(&mut self, name: &str) -> Option<&mut Fragment> {
+        let id = name.strip_suffix(FASTA_EXT).unwrap();
+        if let Some(i) = self.name_to_fragment.get(id) {
+            Some(&mut self.fragments[*i])
+        } else {
+            None
+        }
     }
 
     fn subfragment_from_ino(&self, ino: u64) -> Option<&SubFragment> {
@@ -1485,9 +1497,11 @@ impl Filesystem for FustaFS {
                             warn!("Replacing {}", new_id);
                             self.fragments.retain(|f| f.id != new_id);
                         }
-                        if let Some(ref mut fragment) =
-                            self.mut_fragment_from_filename(name.to_str().unwrap())
-                        {
+                        if let Some(ref mut fragment) = if parent == SEQ_DIR {
+                            self.mut_fragment_from_seq_filename(name.to_str().unwrap())
+                        } else {
+                            self.mut_fragment_from_fasta_filename(name.to_str().unwrap())
+                        } {
                             fragment.rename(&new_id);
                             info!("Renaming {:?} -> {:?}", name, newname);
                             self.dirty = true;

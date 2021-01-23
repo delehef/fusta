@@ -1,6 +1,5 @@
 use std::io::prelude::*;
 use std::io::{BufReader, Lines};
-use smartstring;
 
 #[derive(Debug)]
 pub struct Fragment {

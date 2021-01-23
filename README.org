@@ -30,7 +30,7 @@ sudo sysctl vfs.usermount=1
 **** Prerequisites
 To build FUSTA from sources, you need to install the [[https://www.rust-lang.org/en-US/install.html][Rust compiler]]. Once it has been installed, clone the repository:
 #+begin_src
-git clone https://github.com/delehef/asgart.git
+git clone https://github.com/delehef/fusta.git
 #+end_src
 **** Installation
 You can then build FUSTA by running =cargo=, the Rust build tool:
@@ -38,11 +38,11 @@ You can then build FUSTA by running =cargo=, the Rust build tool:
 cd fusta
 cargo build --release
 #+end_src
-Once the build has concluded, you will find the binary in =target/release/fusta=. It can be run from there or may be moved to a more standard location.
+Once the build has concluded, you will find the binary in =target/release/fusta=. It can be run from there, or you may move it to a more standard location.
 
 * Usage
 ** Quick Start
-These commands run =fusta= in the background. It will mount the FASTA file =file.fa= in an automatically created =fusta= folder, exposing all the sequences contained in =file.fa= there. The call to =tree= will display the virtual hierarchy, then =fusermount= is called to cleanly unmount the file.
+These commands run =fusta= in the background, mount the FASTA file =file.fa= in an automatically created =fusta= folder, exposing all the sequences contained in =file.fa= there. The call to =tree= will display the virtual hierarchy, then =fusermount= is called to cleanly unmount the file.
 
 #+begin_src
 fusta file.fa -D
@@ -52,7 +52,7 @@ fusermount -u fusta
 ** Description
 Once started, =fusta= will expose the content of a FASTA file in a way that makes it usable by any piece of software using as if it were a set of independent files, detailed as follow.
 
-As a helper, here is the virtual hierarchy created by =fusta= after mounting a FASTA file containing /A. thaliana/ genome
+For instance, here is the virtual hierarchy created by =fusta= after mounting a FASTA file containing /A. thaliana/ genome
 #+begin_src
 fusta
 ├── append
@@ -78,19 +78,19 @@ fusta
     └── Pt.seq
 #+end_src
 *** =infos.csv=
-This read-only CSV file contains a list of all the fragments present in the mounted FASTA file, with, for each of them, the standard =id= and =additional informations= field, plus a third one for the length of the sequence.
+This read-only CSV file contains a list of all the fragments present in the mounted FASTA file, with, for each of them, the standard =id= and =additional informations= field, plus a third one containing the length of the sequence.
 *** =infos.txt=
 This read-only text file provides the same informations, but in a more human-readable format.
 *** =labels.txt=
-This read-only file contains a list of all the sequence IDs present in the mounted FASTA file.
+This read-only file contains a list of all the sequence headers present in the mounted FASTA file.
 *** =fasta=
-This folder contains all the individual sequences present in the original FASTA file, exposed as virtually independent read/write FASTA files. Thus, the file can be read, copied, removed, edited, etc. as normal files, and any alteration will be reflected on the mounted FASTA file when fusta is closed.
+This folder contains all the individual sequences present in the original FASTA file, exposed as virtually independent read-only FASTA files.
 *** =seqs=
-This folder contains all the individual sequences present in the original FASTA file, exposed as virtually independent read/write files containing only the sequences - without the FASTA headers, but with any newline preserved. These files can be read, copied, removed, edited, etc. as normal files, and any alteration will be reflected on the mounted FASTA file when fusta is closed.
+This folder contains all the individual sequences present in the original FASTA file, exposed as virtually independent read/write files containing only the sequences - without the FASTA headers, but with any newline preserved. These files can be read, copied, removed, edited, etc. as normal files, and any alteration will be reflected on the original FASTA file when fusta is closed.
 *** =append=
-This folder should be used to add new sequences to the mounted FASTA file. Any valid fasta file copied or moved to this directory will see its sequences appended to the mounted FASTA files. It should be noted that the process is completely transparent and the the folder will remain empty, even though the operation is successful.
+This folder should be used to add new sequences to the mounted FASTA file. Any valid fasta file copied or moved to this directory will be appended to the original FASTA files. It should be noted that the process is completely transparent and the the folder will remain empty, even though the operation is successful.
 *** =get=
-This folder is used for range access to the sequences in the mounted FASTA file. Although it is empty, any read access to a (non-existing) file following the pattern =get/SEQID:START-END= will return the corresponding range (0-indexed) in the specified sequence. It should be noted that the access skip headers and newlines, so that the =START-END= coordinates map to actual loci in the corresponding sequence and not to bytes in the mounted FASTA file.
+This folder is used for range-access to the sequences in the mounted FASTA file. Although it is empty, any read access to a (non-existing) file following the pattern =SEQID:START-END= will return the corresponding range (0-indexed) in the specified sequence. It should be noted that the access skip headers and newlines, so that the =START-END= coordinates map to actual loci in the corresponding sequence and not to bytes in the mounted FASTA file.
 ** Examples
 All the following examples assume that a FASTA file has been mounted (/e.g./ =fusta -D genome.fa=), and is unmounted after manipulation (/e.g./ =fusermount -u fusta=).
 *** Get an overview of the file content
@@ -101,7 +101,7 @@ All the following examples assume that a FASTA file has been mounted (/e.g./ =fu
  #+begin_src shell
  cat fusta/fasta/chr{X,Y}.fa > ~/sex_chrs.fa
  #+end_src
-*** Extract a range of a sequence
+*** Extract a range of chromosome 12
  #+begin_src shell
  cat fusta/get/chr12:12000000-12002000
  #+end_src
@@ -113,11 +113,11 @@ All the following examples assume that a FASTA file has been mounted (/e.g./ =fu
  #+begin_src shell
  cp more_sequences.fa fusta/append
  #+end_src
-*** Edit a sequence
+*** Edit the mitochondrial genome
  #+begin_src shell
  nano fusta/seq/chrMT.seq
  #+end_src
-*** Rename sequences
+*** Batch-rename chromosomes
  #+begin_src shell
  cd fusta/seq; for i in *; do mv ${i} chr${i}; done
  #+end_src
@@ -149,7 +149,7 @@ ARGS:
 * Contact
 If you have any question or if you encounter a problem, do not hesitate to [[https://github.com/delehef/fusta/issues][open an issue]].
 * Acknowledgments
-FUSTA is standing on the shoulders of, among others, [[https://github.com/zargony/fuse-rs/][fuse-rs]], [[https://github.com/clap-rs/clap][clap]], [[https://github.com/danburkert/memmap-rs][memmap]] and [[https://github.com/knsd/daemonize][daemonize]].
+FUSTA is standing on the shoulders of, among others, [[https://github.com/cberner/fuser][fuser]], [[https://github.com/clap-rs/clap][clap]], [[https://github.com/danburkert/memmap-rs][memmap]] and [[https://github.com/knsd/daemonize][daemonize]].
 * Changelog
 ** v1.2.1
 - Bugfixes

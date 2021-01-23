@@ -3,11 +3,11 @@ use fuser::*;
 use libc::*;
 use log::*;
 use maplit::*;
-use multi_map::MultiMap;
 use regex::Regex;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::ffi::OsStr;
 use std::fs;
 use std::time::{Duration, SystemTime};
@@ -19,8 +19,8 @@ use fusta::fasta::*;
 
 const TTL: Duration = Duration::from_secs(1);
 
-const FASTA_EXT: &str = "fa";
-const SEQ_EXT: &str = "seq";
+const FASTA_EXT: &str = ".fa";
+const SEQ_EXT: &str = ".seq";
 
 // Virtual directories
 const ROOT_DIR: u64 = 1;
@@ -212,7 +212,7 @@ impl Fragment {
             data: data,
             fasta_file: Fragment::make_virtual_file(
                 fasta_ino,
-                &format!("{}.{}", id, FASTA_EXT),
+                &format!("{}{}", id, FASTA_EXT),
                 0o664,
                 label.as_bytes().len() + data_size,
                 FileClass::Fasta(RefCell::new(Vec::new())),
@@ -221,7 +221,7 @@ impl Fragment {
             ),
             seq_file: Fragment::make_virtual_file(
                 seq_ino,
-                &format!("{}.{}", id, SEQ_EXT),
+                &format!("{}{}", id, SEQ_EXT),
                 0o664,
                 data_size,
                 FileClass::Seq,
@@ -237,7 +237,7 @@ impl Fragment {
     }
 
     fn refresh_virtual_files(&mut self) {
-        self.fasta_file.name = format!("{}.{}", self.id, FASTA_EXT);
+        self.fasta_file.name = format!("{}{}", self.id, FASTA_EXT);
         self.fasta_file.attrs.size = (self.label_size() + self.data_size()) as u64;
 
         self.seq_file.name = format!("{}.{}", self.id, SEQ_EXT);
@@ -428,6 +428,7 @@ pub struct FustaFS {
     fragments: Vec<Fragment>,
     metadata: fs::Metadata,
     dir_attrs: BTreeMap<u64, FileAttr>,
+    name_to_fragment: HashMap<String, usize>,
     files: Vec<Box<dyn VirtualFile + Send>>,
     filename: String,
     settings: FustaSettings,
@@ -482,6 +483,7 @@ impl FustaFS {
             current_ino: FIRST_INO,
             pending_appends: HashMap::new(),
             subfragments: Vec::new(),
+            name_to_fragment: HashMap::new(),
             dirty: false,
         };
 
@@ -583,9 +585,7 @@ impl FustaFS {
                 )
             })
             .collect::<Vec<_>>();
-        self.make_info_buffer();
-        self.make_info_csv_buffer();
-        self.make_labels_buffer();
+        self.refresh_metadata();
     }
 
     fn concretize(&mut self, force: bool) {
@@ -663,11 +663,17 @@ impl FustaFS {
     }
 
     fn fragment_from_fasta_filename(&self, name: &str) -> Option<&Fragment> {
-        self.fragments.iter().find(|f| f.fasta_file.name == name)
+        name.strip_suffix(FASTA_EXT)
+            .map(|id| self.name_to_fragment.get(id))
+            .flatten()
+            .map(|&i| &self.fragments[i])
     }
 
     fn fragment_from_seq_filename(&self, name: &str) -> Option<&Fragment> {
-        self.fragments.iter().find(|f| f.seq_file.name == name)
+        name.strip_suffix(SEQ_EXT)
+            .map(|id| self.name_to_fragment.get(id))
+            .flatten()
+            .map(|&i| &self.fragments[i])
     }
 
     fn mut_fragment_from_filename(&mut self, name: &str) -> Option<&mut Fragment> {
@@ -751,6 +757,25 @@ impl FustaFS {
             x.set_data(content.as_bytes());
             x.mut_attrs().size = size;
         }
+    }
+
+    fn refresh_metadata(&mut self) {
+        debug!("Refreshing metadata...");
+        self.make_info_buffer();
+        self.make_info_csv_buffer();
+        self.make_labels_buffer();
+        self.update_name_mapping();
+        debug!("Done.")
+    }
+
+    fn update_name_mapping(&mut self) {
+        self.name_to_fragment.clear();
+        let mut j = 0;
+        for (i, f) in self.fragments.iter().enumerate() {
+            self.name_to_fragment.insert(f.id.clone(), i);
+            j = i;
+        }
+        error!("{} fragments inserted", j)
     }
 
     fn is_fasta_file(&self, ino: u64) -> bool {
@@ -914,21 +939,18 @@ impl Filesystem for FustaFS {
         debug!("READING {}", ino);
         match ino {
             INFO_FILE => {
-                self.make_info_buffer();
                 let data = self.get_file(INFO_FILE).unwrap().data();
                 let start = offset as usize;
                 let end = std::cmp::min(start + size as usize, data.len());
                 reply.data(&data[start..end]);
             }
             INFO_CSV_FILE => {
-                self.make_info_csv_buffer();
                 let data = self.get_file(INFO_CSV_FILE).unwrap().data();
                 let start = offset as usize;
                 let end = std::cmp::min(start + size as usize, data.len());
                 reply.data(&data[start..end]);
             }
             LABELS_FILE => {
-                self.make_labels_buffer();
                 let data = self.get_file(LABELS_FILE).unwrap().data();
                 let start = offset as usize;
                 let end = std::cmp::min(start + size as usize, data.len());
@@ -1016,15 +1038,15 @@ impl Filesystem for FustaFS {
         match ino {
             ROOT_DIR => {
                 let entries = btreemap! {
-                    ROOT_DIR         => (FileType::Directory, ".".to_owned()),
-                    0                => (FileType::Directory, "..".to_owned()), // TODO
-                    FASTA_DIR        => (FileType::Directory, "fasta".to_owned()),
-                    SEQ_DIR          => (FileType::Directory, "seqs".to_owned()),
-                    APPEND_DIR       => (FileType::Directory, "append".to_owned()),
-                    SUBFRAGMENTS_DIR => (FileType::Directory, "get".to_owned()),
-                    INFO_FILE        => (FileType::RegularFile, INFO_FILE_NAME.to_owned()),
-                    INFO_CSV_FILE    => (FileType::RegularFile, INFO_CSV_FILE_NAME.to_owned()),
-                    LABELS_FILE      => (FileType::RegularFile, LABELS_FILE_NAME.to_owned()),
+                    ROOT_DIR         => (FileType::Directory, "."),
+                    0                => (FileType::Directory, ".."), // TODO
+                    FASTA_DIR        => (FileType::Directory, "fasta"),
+                    SEQ_DIR          => (FileType::Directory, "seqs"),
+                    APPEND_DIR       => (FileType::Directory, "append"),
+                    SUBFRAGMENTS_DIR => (FileType::Directory, "get"),
+                    INFO_FILE        => (FileType::RegularFile, INFO_FILE_NAME),
+                    INFO_CSV_FILE    => (FileType::RegularFile, INFO_CSV_FILE_NAME),
+                    LABELS_FILE      => (FileType::RegularFile, LABELS_FILE_NAME),
                 };
                 for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
                     let _ = reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
@@ -1032,34 +1054,27 @@ impl Filesystem for FustaFS {
                 reply.ok();
             }
             FASTA_DIR | SEQ_DIR => {
-                // Here, a much more elegant approach similar to the ones in the other arms could be used.
-                // However, relying on the creation/iteration of a hashmap sink performances in the case
-                // of FASTA files containing many fragments (e.g. 1M+)
-                let mut current_offset = 0;
-                if current_offset >= offset {
-                    let _ = reply.add(ino, current_offset + 1, FileType::Directory, ".");
-                }
-                current_offset += 1;
-
-                if current_offset >= offset {
-                    let _ = reply.add(ROOT_DIR, current_offset + 1, FileType::Directory, "..");
-                }
-                current_offset += 1;
-
-                for f in self.fragments.iter() {
-                    if current_offset >= offset {
-                        let (ino, name) = if ino == SEQ_DIR {
-                            (f.fasta_file.ino, f.fasta_file.name.to_string())
-                        } else {
-                            (f.seq_file.ino, f.seq_file.name.to_string())
-                        };
-                        let _ = reply.add(ino, current_offset + 1, FileType::RegularFile, name);
-                        current_offset += 1;
+                for (i, file) in vec![
+                    (ino, FileType::Directory, &".".to_string()),
+                    (ROOT_DIR, FileType::Directory, &"..".to_string()),
+                ]
+                .into_iter()
+                .chain(self.fragments.iter().map(|f| {
+                    let (ino, name) = if ino == SEQ_DIR {
+                        (f.seq_file.ino, &f.seq_file.name)
                     } else {
-                        reply.ok();
-                        return;
+                        (f.fasta_file.ino, &f.fasta_file.name)
+                    };
+                    (ino, FileType::RegularFile, name)
+                }))
+                .enumerate()
+                .skip(offset.try_into().unwrap())
+                {
+                    if reply.add(file.0, (i + 1).try_into().unwrap(), file.1, file.2) {
+                        break;
                     }
                 }
+                info!("A: {}", offset);
                 reply.ok();
             }
             APPEND_DIR => {
@@ -1105,6 +1120,7 @@ impl Filesystem for FustaFS {
                     if length_after != length_before {
                         self.dirty = true;
                     }
+                    self.refresh_metadata();
                     self.concretize(false);
                     reply.ok();
                 } else {
@@ -1148,7 +1164,7 @@ impl Filesystem for FustaFS {
                     .unwrap()
                     .to_str()
                     .unwrap();
-                // If pathname already exists [...], this call fails with an EEXIST error.
+                // From man: if pathname already exists [...], this call fails with an EEXIST error.
                 if self.fragments.iter().any(|f| f.id == basename) && NO_OVERWRITE {
                     error!("Cannot create `{:?}`, already exists", name);
                     reply.error(EEXIST);
@@ -1460,7 +1476,8 @@ impl Filesystem for FustaFS {
                             info!("Renaming {:?} -> {:?}", name, newname);
                             self.dirty = true;
                             self.concretize(false);
-                            reply.ok()
+                            self.refresh_metadata();
+                            reply.ok();
                         } else {
                             warn!("\t{:?} does not exist", name);
                             reply.error(ENOENT);
@@ -1478,6 +1495,7 @@ impl Filesystem for FustaFS {
     fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
         trace!("FSYNC");
         self.concretize(false);
+        self.refresh_metadata();
         reply.ok();
     }
 
@@ -1491,6 +1509,7 @@ impl Filesystem for FustaFS {
     ) {
         trace!("FSYNCDIR");
         self.concretize(false);
+        self.refresh_metadata();
         reply.ok();
     }
 
@@ -1566,10 +1585,11 @@ impl Filesystem for FustaFS {
                                 pending.1.attrs.mtime,
                             ))
                         }
-                    }))
+                    }));
                 }
             }
             self.concretize(false);
+            self.refresh_metadata();
         } else {
             debug!("Not a writeable file; ignoring")
         }

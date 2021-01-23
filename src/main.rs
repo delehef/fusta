@@ -169,8 +169,10 @@ fn main() -> Result<()> {
     ctrlc::set_handler(move || {
         error!("{}", err_msg);
     })?;
-    match fuse::mount(fs, &env.mountpoint, &fuse_options) {
-        Ok(()) => {}
+    match fuser::mount(fs, &env.mountpoint, &fuse_options) {
+        Ok(()) => {
+            eprintln!("{} successfully mounted in {:?}", &fasta_file, &env.mountpoint.canonicalize().unwrap());
+        }
         _ => {
             error!("Unable to mount the FUSE filesystem");
             std::process::exit(1);

@@ -1,8 +1,9 @@
 #![allow(clippy::redundant_field_names)]
-use fuse::*;
+use fuser::*;
 use libc::*;
 use log::*;
 use maplit::*;
+use multi_map::MultiMap;
 use regex::Regex;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -191,6 +192,8 @@ impl Fragment {
                 gid: unsafe { libc::getgid() },
                 rdev: 0,
                 flags: 0,
+                blksize: 512,
+                padding: 0,
             },
         }
     }
@@ -509,6 +512,8 @@ impl FustaFS {
             gid: unsafe { libc::getgid() },
             rdev: 0,
             flags: 0,
+            blksize: 0,
+            padding: 0,
         }
     }
 
@@ -528,6 +533,8 @@ impl FustaFS {
             gid: unsafe { libc::getgid() },
             rdev: 0,
             flags: 0,
+            blksize: 512,
+            padding: 0,
         }
     }
 
@@ -801,7 +808,7 @@ impl FustaFS {
                 })
                 .ok_or_else(|| unimplemented!())
 
-        // Ok(attrs)
+            // Ok(attrs)
         } else {
             Err(error_message)
         }
@@ -904,6 +911,8 @@ impl Filesystem for FustaFS {
         _fh: u64,
         offset: i64,
         size: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
         debug!("READING {}", ino);
@@ -970,7 +979,7 @@ impl Filesystem for FustaFS {
                                     }
                                     reply.data(
                                         &header_buffer.borrow()[offset as usize
-                                            ..std::cmp::min(end, header_buffer.borrow().len())],
+                                                                ..std::cmp::min(end, header_buffer.borrow().len())],
                                     );
                                 }
                                 _ => panic!("WTF"),
@@ -1127,6 +1136,7 @@ impl Filesystem for FustaFS {
         parent: u64,
         name: &OsStr,
         _mode: u32,
+        _umask: u32,
         _rdev: u32,
         reply: ReplyEntry,
     ) {
@@ -1165,6 +1175,8 @@ impl Filesystem for FustaFS {
                     gid: unsafe { libc::getgid() },
                     rdev: 0,
                     flags: 0,
+                    blksize: 512,
+                    padding: 0,
                 };
                 let pending = PendingAppend {
                     data: Vec::new(),
@@ -1189,7 +1201,9 @@ impl Filesystem for FustaFS {
         _fh: u64,
         offset: i64,
         data: &[u8],
-        _flags: u32,
+        _write_flags: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         reply: ReplyWrite,
     ) {
         if !self.is_writeable(ino) {
@@ -1261,8 +1275,9 @@ impl Filesystem for FustaFS {
         uid: Option<u32>,
         gid: Option<u32>,
         size: Option<u64>,
-        atime: Option<SystemTime>,
-        mtime: Option<SystemTime>,
+        atime: Option<TimeOrNow>,
+        mtime: Option<TimeOrNow>,
+        _ctime: Option<SystemTime>,
         _fh: Option<u64>,
         crtime: Option<SystemTime>,
         chgtime: Option<SystemTime>,
@@ -1306,12 +1321,12 @@ impl Filesystem for FustaFS {
                             if let Some(gid) = gid {
                                 file.mut_attrs().gid = gid
                             }
-                            if let Some(atime) = atime {
-                                file.mut_attrs().atime = atime
-                            }
-                            if let Some(mtime) = mtime {
-                                file.mut_attrs().mtime = mtime
-                            }
+                            // if let Some(atime) = atime {
+                            //     file.mut_attrs().atime = atime
+                            // }
+                            // if let Some(mtime) = mtime {
+                            //     file.mut_attrs().mtime = mtime
+                            // }
                             if let Some(chgtime) = chgtime {
                                 file.mut_attrs().mtime = chgtime
                             }
@@ -1336,9 +1351,9 @@ impl Filesystem for FustaFS {
                                 }
                             } else if size
                                 != self
-                                    .fragment_from_ino(ino)
-                                    .map(Fragment::data_size)
-                                    .unwrap()
+                                .fragment_from_ino(ino)
+                                .map(Fragment::data_size)
+                                .unwrap()
                             {
                                 // Redim the file
                                 let mut fragment = self.mut_fragment_from_ino(ino).unwrap();
@@ -1403,6 +1418,7 @@ impl Filesystem for FustaFS {
         name: &OsStr,
         newparent: u64,
         newname: &OsStr,
+        _flags: u32,
         reply: ReplyEmpty,
     ) {
         match parent {
@@ -1493,8 +1509,8 @@ impl Filesystem for FustaFS {
         _req: &Request,
         ino: u64,
         _fh: u64,
-        _flags: u32,
-        _lock_owner: u64,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {

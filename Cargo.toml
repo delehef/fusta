@@ -21,6 +21,7 @@ num-format = "0.4"
 lazy_static = "1"
 regex = "1"
 fuser = "0.7"
+smartstring = "0.2"
 
 [profile.release]
 debug = true

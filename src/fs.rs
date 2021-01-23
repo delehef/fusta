@@ -11,6 +11,8 @@ use std::convert::TryInto;
 use std::ffi::OsStr;
 use std::fs;
 use std::time::{Duration, SystemTime};
+use smartstring::SmartString;
+type SString = SmartString<smartstring::LazyCompact>;
 
 use std::io::prelude::*;
 use std::io::SeekFrom;
@@ -66,7 +68,7 @@ trait VirtualFile {
 }
 
 struct BufferFile {
-    name: String,
+    name: SString,
     ino: u64,
     attrs: FileAttr,
     class: FileClass,
@@ -99,7 +101,7 @@ impl VirtualFile for BufferFile {
 
 #[derive(Debug)]
 struct FragmentFile {
-    name: String,
+    name: SString,
     ino: u64,
     attrs: FileAttr,
     class: FileClass,
@@ -130,7 +132,7 @@ impl VirtualFile for FragmentFile {
 
 #[derive(Debug)]
 enum Backing {
-    File(String, usize, usize),
+    File(SString, usize, usize),
     Buffer(Vec<u8>),
     MMap(memmap::Mmap),
 }
@@ -146,7 +148,7 @@ impl Backing {
 
 #[derive(Debug)]
 struct Fragment {
-    id: String,
+    id: SString,
     name: Option<String>,
     data: Backing,
     fasta_file: FragmentFile,
@@ -171,7 +173,7 @@ impl Fragment {
         modified: SystemTime,
     ) -> FragmentFile {
         FragmentFile {
-            name: name.to_string(),
+            name: name.into(),
             ino: ino,
             class: class,
             attrs: FileAttr {
@@ -207,7 +209,7 @@ impl Fragment {
         let label = Fragment::make_label(id, name);
         let data_size = data.len();
         Fragment {
-            id: id.to_string(),
+            id: id.into(),
             name: name.clone(),
             data: data,
             fasta_file: Fragment::make_virtual_file(
@@ -232,15 +234,15 @@ impl Fragment {
     }
 
     fn rename(&mut self, new_id: &str) {
-        self.id = new_id.to_string();
+        self.id = new_id.into();
         self.refresh_virtual_files();
     }
 
     fn refresh_virtual_files(&mut self) {
-        self.fasta_file.name = format!("{}{}", self.id, FASTA_EXT);
+        self.fasta_file.name = format!("{}{}", self.id, FASTA_EXT).into();
         self.fasta_file.attrs.size = (self.label_size() + self.data_size()) as u64;
 
-        self.seq_file.name = format!("{}.{}", self.id, SEQ_EXT);
+        self.seq_file.name = format!("{}.{}", self.id, SEQ_EXT).into();
         self.seq_file.attrs.size = self.data_size() as u64;
     }
 
@@ -264,7 +266,7 @@ impl Fragment {
         match &self.data {
             Backing::File(filename, start, _) => {
                 let mut buffer = vec![0u8; self.data_size() as usize];
-                let mut f = fs::File::open(&filename)
+                let mut f = fs::File::open(filename.as_str())
                     .unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
                 f.seek(SeekFrom::Start(*start as u64))
                     .unwrap_or_else(|_| panic!("Unable to seek in `{}`", filename));
@@ -281,7 +283,7 @@ impl Fragment {
         match &self.data {
             Backing::File(filename, start, _) => {
                 let mut buffer = vec![0u8; size as usize];
-                let mut f = fs::File::open(&filename)
+                let mut f = fs::File::open(filename.as_str())
                     .unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
                 f.seek(SeekFrom::Start(*start as u64 + offset as u64))
                     .unwrap_or_else(|_| panic!("Unable to seek in `{}`", filename));
@@ -306,7 +308,7 @@ impl Fragment {
     fn true_chunk(&self, offset: i64, size: u32) -> Box<[u8]> {
         match &self.data {
             Backing::File(filename, start, _) => {
-                let mut f = fs::File::open(&filename)
+                let mut f = fs::File::open(filename.as_str())
                     .unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
                 f.seek(SeekFrom::Start(*start as u64 + offset as u64))
                     .unwrap_or_else(|_| panic!("Unable to seek in `{}`", filename));
@@ -434,7 +436,7 @@ pub struct FustaFS {
     settings: FustaSettings,
     current_ino: u64,
 
-    pending_appends: HashMap<String, PendingAppend>,
+    pending_appends: BTreeMap<String, PendingAppend>,
 
     subfragments: Vec<SubFragment>,
 
@@ -457,31 +459,31 @@ impl FustaFS {
             },
             files: vec![
                 Box::new(BufferFile {
-                    name: INFO_FILE_NAME.to_owned(),
+                    name: INFO_FILE_NAME.into(),
                     ino: INFO_FILE,
                     attrs: FustaFS::make_file_attrs(INFO_FILE, 0o444),
                     class: FileClass::Text,
                     _data: Vec::new(),
                 }),
                 Box::new(BufferFile {
-                    name: INFO_CSV_FILE_NAME.to_owned(),
+                    name: INFO_CSV_FILE_NAME.into(),
                     ino: INFO_CSV_FILE,
                     attrs: FustaFS::make_file_attrs(INFO_CSV_FILE, 0o444),
                     class: FileClass::Text,
                     _data: Vec::new(),
                 }),
                 Box::new(BufferFile {
-                    name: LABELS_FILE_NAME.to_owned(),
+                    name: LABELS_FILE_NAME.into(),
                     ino: LABELS_FILE,
                     attrs: FustaFS::make_file_attrs(LABELS_FILE, 0o444),
                     class: FileClass::Text,
                     _data: Vec::new(),
                 }),
             ],
-            metadata: metadata,
-            settings: settings,
+            metadata,
+            settings,
             current_ino: FIRST_INO,
-            pending_appends: HashMap::new(),
+            pending_appends: BTreeMap::new(),
             subfragments: Vec::new(),
             name_to_fragment: HashMap::new(),
             dirty: false,
@@ -576,7 +578,7 @@ impl FustaFS {
                                 .unwrap()
                         })
                     } else {
-                        Backing::File(filename.to_owned(), fragment.pos.0, fragment.pos.1)
+                        Backing::File(filename.into(), fragment.pos.0, fragment.pos.1)
                     },
                     self.new_ino(),
                     self.new_ino(),
@@ -631,7 +633,7 @@ impl FustaFS {
                     .unwrap_or_else(|_| panic!("Unable to write to `{}`", tmp_filename));
                 index += fragment.data().len();
 
-                fragment.data = Backing::File(self.filename.clone(), last_start, index);
+                fragment.data = Backing::File(self.filename.clone().into(), last_start, index);
                 fragment.refresh_virtual_files();
             }
         }
@@ -703,8 +705,8 @@ impl FustaFS {
             .map(|f| {
                 vec![
                     f.id.to_owned(),
-                    f.name.as_ref().unwrap_or(&"".to_string()).to_owned(),
-                    f.data_size().to_formatted_string(&Locale::en),
+                    f.name.as_ref().unwrap_or(&"".to_string()).into(),
+                    f.data_size().to_formatted_string(&Locale::en).into(),
                 ]
             })
             .collect::<Vec<_>>();
@@ -770,12 +772,9 @@ impl FustaFS {
 
     fn update_name_mapping(&mut self) {
         self.name_to_fragment.clear();
-        let mut j = 0;
         for (i, f) in self.fragments.iter().enumerate() {
-            self.name_to_fragment.insert(f.id.clone(), i);
-            j = i;
+            self.name_to_fragment.insert(f.id.clone().into(), i);
         }
-        error!("{} fragments inserted", j)
     }
 
     fn is_fasta_file(&self, ino: u64) -> bool {
@@ -1055,8 +1054,8 @@ impl Filesystem for FustaFS {
             }
             FASTA_DIR | SEQ_DIR => {
                 for (i, file) in vec![
-                    (ino, FileType::Directory, &".".to_string()),
-                    (ROOT_DIR, FileType::Directory, &"..".to_string()),
+                    (ino, FileType::Directory, &".".into()),
+                    (ROOT_DIR, FileType::Directory, &"..".into()),
                 ]
                 .into_iter()
                 .chain(self.fragments.iter().map(|f| {
@@ -1070,11 +1069,10 @@ impl Filesystem for FustaFS {
                 .enumerate()
                 .skip(offset.try_into().unwrap())
                 {
-                    if reply.add(file.0, (i + 1).try_into().unwrap(), file.1, file.2) {
+                    if reply.add(file.0, (i + 1).try_into().unwrap(), file.1, file.2.as_str()) {
                         break;
                     }
                 }
-                info!("A: {}", offset);
                 reply.ok();
             }
             APPEND_DIR => {

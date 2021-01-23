@@ -165,13 +165,7 @@ fn main() -> Result<()> {
         error!("{}", err_msg);
     })?;
     match fuser::mount(fs, &env.mountpoint, &fuse_options) {
-        Ok(()) => {
-            eprintln!(
-                "{} successfully mounted in {:?}",
-                &fasta_file,
-                &env.mountpoint.canonicalize().unwrap()
-            );
-        }
+        Ok(()) => {}
         _ => {
             error!("Unable to mount the FUSE filesystem");
             std::process::exit(1);

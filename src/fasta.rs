@@ -1,9 +1,10 @@
 use std::io::prelude::*;
 use std::io::{BufReader, Lines};
+use smartstring;
 
 #[derive(Debug)]
 pub struct Fragment {
-    pub id: String,
+    pub id: smartstring::SmartString<smartstring::LazyCompact>,
     pub name: Option<String>,
     pub pos: (usize, usize),
     pub len: usize,
@@ -40,7 +41,7 @@ impl<T: Read> Iterator for FastaReader<T> {
                 if let Some(ref current_header) = self.current_header {
                     let split = current_header.split(' ').collect::<Vec<_>>();
                     let r = Fragment {
-                        id: split[0].to_string(),
+                        id: split[0].into(),
                         name: if split.len() > 1 {
                             Some(split[1..].join(" "))
                         } else {
@@ -66,7 +67,7 @@ impl<T: Read> Iterator for FastaReader<T> {
         if let Some(ref current_header) = self.current_header {
             let split = current_header.split(' ').collect::<Vec<_>>();
             let r = Fragment {
-                id: split[0].to_string(),
+                id: split[0].into(),
                 name: if split.len() > 1 {
                     Some(split[1..].join(" "))
                 } else {

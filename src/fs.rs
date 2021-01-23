@@ -1031,37 +1031,34 @@ impl Filesystem for FustaFS {
                 }
                 reply.ok();
             }
-            FASTA_DIR => {
-                let mut entries = btreemap! {
-                    FASTA_DIR  => (FileType::Directory, ".".to_owned()),
-                    ROOT_DIR => (FileType::Directory, "..".to_owned()),
-                };
-                for f in self.fragments.iter() {
-                    entries.insert(
-                        f.fasta_file.ino,
-                        (FileType::RegularFile, f.fasta_file.name.clone()),
-                    );
+            FASTA_DIR | SEQ_DIR => {
+                // Here, a much more elegant approach similar to the ones in the other arms could be used.
+                // However, relying on the creation/iteration of a hashmap sink performances in the case
+                // of FASTA files containing many fragments (e.g. 1M+)
+                let mut current_offset = 0;
+                if current_offset >= offset {
+                    let _ = reply.add(ino, current_offset + 1, FileType::Directory, ".");
                 }
+                current_offset += 1;
 
-                for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
-                    let _ = reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
+                if current_offset >= offset {
+                    let _ = reply.add(ROOT_DIR, current_offset + 1, FileType::Directory, "..");
                 }
-                reply.ok();
-            }
-            SEQ_DIR => {
-                let mut entries = btreemap! {
-                    SEQ_DIR  => (FileType::Directory, ".".to_owned()),
-                    ROOT_DIR => (FileType::Directory, "..".to_owned()),
-                };
-                for f in self.fragments.iter() {
-                    entries.insert(
-                        f.seq_file.ino,
-                        (FileType::RegularFile, f.seq_file.name.clone()),
-                    );
-                }
+                current_offset += 1;
 
-                for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
-                    let _ = reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
+                for f in self.fragments.iter() {
+                    if current_offset >= offset {
+                        let (ino, name) = if ino == SEQ_DIR {
+                            (f.fasta_file.ino, f.fasta_file.name.to_string())
+                        } else {
+                            (f.seq_file.ino, f.seq_file.name.to_string())
+                        };
+                        let _ = reply.add(ino, current_offset + 1, FileType::RegularFile, name);
+                        current_offset += 1;
+                    } else {
+                        reply.ok();
+                        return;
+                    }
                 }
                 reply.ok();
             }

@@ -7,6 +7,8 @@ use anyhow::{bail, Context, Result};
 use clap::*;
 use daemonize::*;
 use log::*;
+#[cfg(feature = "notifications")]
+use notify_rust::Notification;
 use simplelog::*;
 
 pub mod fs;
@@ -168,6 +170,16 @@ fn main() -> Result<()> {
         Ok(()) => {}
         _ => {
             error!("Unable to mount the FUSE filesystem");
+            #[cfg(feature = "notifications")]
+            Notification::new()
+                .summary("FUSTA")
+                .body(&format!(
+                    "Failed to mount {}",
+                    Path::new(fasta_file).file_name()
+                ))
+                .show()
+                .unwrap();
+
             std::process::exit(1);
         }
     }

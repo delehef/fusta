@@ -4,6 +4,7 @@ use libc::*;
 use log::*;
 use maplit::*;
 use regex::Regex;
+use smartstring::SmartString;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -11,7 +12,6 @@ use std::convert::TryInto;
 use std::ffi::OsStr;
 use std::fs;
 use std::time::{Duration, SystemTime};
-use smartstring::SmartString;
 type SString = SmartString<smartstring::LazyCompact>;
 
 use std::io::prelude::*;
@@ -613,6 +613,15 @@ impl FustaFS {
         }
 
         info!("========== CONCRETIZING ========");
+        #[cfg(feature = "notifications")]
+        Notification::new()
+            .summary("FUSTA")
+            .body(&format!(
+                "Updating {}",
+                Path::new(self.filename).file_name()
+            ))
+            .show()
+            .unwrap();
         let mut index = 0;
         let mut last_start;
         trace!("Writing fragments");
@@ -645,6 +654,15 @@ impl FustaFS {
             )
         });
         info!("========== DONE ========");
+        #[cfg(feature = "notifications")]
+        Notification::new()
+            .summary("FUSTA")
+            .body(&format!(
+                "{} has been updated",
+                Path::new(self.filename).file_name()
+            ))
+            .show()
+            .unwrap();
         self.dirty = false;
     }
 

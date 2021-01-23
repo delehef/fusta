@@ -22,6 +22,10 @@ lazy_static = "1"
 regex = "1"
 fuser = "0.7"
 smartstring = "0.2"
+notify-rust = { version = "4", optional = true }
+
+[features]
+notifications = ["notify-rust"]
 
 [profile.release]
 debug = true

@@ -662,10 +662,12 @@ impl FustaFS {
             .find(|f| f.fasta_file.ino == ino || f.seq_file.ino == ino)
     }
 
-    fn fragment_from_filename(&self, name: &str) -> Option<&Fragment> {
-        self.fragments
-            .iter()
-            .find(|f| f.fasta_file.name == name || f.seq_file.name == name)
+    fn fragment_from_fasta_filename(&self, name: &str) -> Option<&Fragment> {
+        self.fragments.iter().find(|f| f.fasta_file.name == name)
+    }
+
+    fn fragment_from_seq_filename(&self, name: &str) -> Option<&Fragment> {
+        self.fragments.iter().find(|f| f.seq_file.name == name)
     }
 
     fn mut_fragment_from_filename(&mut self, name: &str) -> Option<&mut Fragment> {
@@ -798,7 +800,7 @@ impl FustaFS {
                 })
                 .ok_or_else(|| unimplemented!())
 
-            // Ok(attrs)
+        // Ok(attrs)
         } else {
             Err(error_message)
         }
@@ -841,10 +843,14 @@ impl Filesystem for FustaFS {
                 }
             },
             SEQ_DIR | FASTA_DIR => {
-                if let Some(file) = self
-                    .fragment_from_filename(name)
-                    .and_then(|f| f.file_from_filename(name))
-                {
+                let file = (if parent == SEQ_DIR {
+                    self.fragment_from_seq_filename(name)
+                } else {
+                    self.fragment_from_fasta_filename(name)
+                })
+                .and_then(|f| f.file_from_filename(name));
+
+                if let Some(file) = file {
                     reply.entry(&TTL, &file.attrs(), 0);
                 } else {
                     reply.error(ENOENT);
@@ -969,7 +975,7 @@ impl Filesystem for FustaFS {
                                     }
                                     reply.data(
                                         &header_buffer.borrow()[offset as usize
-                                                                ..std::cmp::min(end, header_buffer.borrow().len())],
+                                            ..std::cmp::min(end, header_buffer.borrow().len())],
                                     );
                                 }
                                 _ => panic!("WTF"),
@@ -1086,11 +1092,14 @@ impl Filesystem for FustaFS {
             }
             SEQ_DIR | FASTA_DIR => {
                 let name = name.to_str().unwrap();
-                if self
-                    .fragment_from_filename(name)
-                    .and_then(|f| f.file_from_filename(name))
-                    .is_some()
-                {
+                let file = (if parent == SEQ_DIR {
+                    self.fragment_from_seq_filename(name)
+                } else {
+                    self.fragment_from_fasta_filename(name)
+                })
+                .and_then(|f| f.file_from_filename(name));
+
+                if file.is_some() {
                     let length_before = self.fragments.len();
                     self.fragments
                         .retain(|f| f.fasta_file.name != name && f.seq_file.name != name);
@@ -1341,9 +1350,9 @@ impl Filesystem for FustaFS {
                                 }
                             } else if size
                                 != self
-                                .fragment_from_ino(ino)
-                                .map(Fragment::data_size)
-                                .unwrap()
+                                    .fragment_from_ino(ino)
+                                    .map(Fragment::data_size)
+                                    .unwrap()
                             {
                                 // Redim the file
                                 let mut fragment = self.mut_fragment_from_ino(ino).unwrap();

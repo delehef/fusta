@@ -166,7 +166,11 @@ fn main() -> Result<()> {
     })?;
     match fuser::mount(fs, &env.mountpoint, &fuse_options) {
         Ok(()) => {
-            eprintln!("{} successfully mounted in {:?}", &fasta_file, &env.mountpoint.canonicalize().unwrap());
+            eprintln!(
+                "{} successfully mounted in {:?}",
+                &fasta_file,
+                &env.mountpoint.canonicalize().unwrap()
+            );
         }
         _ => {
             error!("Unable to mount the FUSE filesystem");

@@ -51,10 +51,7 @@ enum FileClass {
 }
 impl FileClass {
     fn readonly(&self) -> bool {
-        match self {
-            FileClass::Seq => false,
-            _ => true,
-        }
+        matches!(self, FileClass::Seq)
     }
 }
 
@@ -259,10 +256,6 @@ impl Fragment {
         }
     }
 
-    fn total_size(&self) -> usize {
-        self.label_size() + self.data_size()
-    }
-
     fn label(&self) -> String {
         Fragment::make_label(&self.id, &self.name)
     }
@@ -292,7 +285,7 @@ impl Fragment {
                     .unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
                 f.seek(SeekFrom::Start(*start as u64 + offset as u64))
                     .unwrap_or_else(|_| panic!("Unable to seek in `{}`", filename));
-                f.read(&mut buffer)
+                f.read_exact(&mut buffer)
                     .unwrap_or_else(|_| panic!("Unable to read from `{}`", filename));
                 buffer.into_boxed_slice()
             }
@@ -421,9 +414,9 @@ impl SubFragment {
 
         SubFragment {
             fragment: fragment.to_owned(),
-            start: start,
-            end: end,
-            attrs: attrs,
+            start,
+            end,
+            attrs,
         }
     }
 }
@@ -714,11 +707,10 @@ impl FustaFS {
             &table.format(&infos)
         );
         let size = content.as_bytes().len() as u64;
-        self.get_file(INFO_FILE).and_then(|x| {
+        if let Some(x) = self.get_file(INFO_FILE) {
             x.set_data(content.as_bytes());
             x.mut_attrs().size = size;
-            Some(())
-        });
+        }
     }
 
     fn make_info_csv_buffer(&mut self) {
@@ -738,11 +730,10 @@ impl FustaFS {
             .collect::<Vec<_>>();
         let content = format!("{}\n{}", header, infos.join("\n"));
         let size = content.as_bytes().len() as u64;
-        self.get_file(INFO_CSV_FILE).and_then(|x| {
+        if let Some(x) = self.get_file(INFO_CSV_FILE) {
             x.set_data(content.as_bytes());
             x.mut_attrs().size = size;
-            Some(())
-        });
+        }
     }
 
     fn make_labels_buffer(&mut self) {
@@ -754,11 +745,10 @@ impl FustaFS {
             .collect::<Vec<_>>()
             .join("");
         let size = content.as_bytes().len() as u64;
-        self.get_file(LABELS_FILE).and_then(|x| {
+        if let Some(x) = self.get_file(LABELS_FILE) {
             x.set_data(content.as_bytes());
             x.mut_attrs().size = size;
-            Some(())
-        });
+        }
     }
 
     fn is_fasta_file(&self, ino: u64) -> bool {
@@ -798,11 +788,11 @@ impl FustaFS {
             self.subfragments
                 .iter()
                 .find(|sf| sf.fragment == fragment_id && sf.start == start && sf.end == end)
-                .map(|sf| sf.attrs.clone())
+                .map(|sf| sf.attrs)
                 .or_else(|| {
                     let mut attrs = FustaFS::make_file_attrs(ino, 0o444);
                     attrs.size = (end - start) as u64;
-                    let sf = SubFragment::new(&fragment_id, start, end, attrs.clone());
+                    let sf = SubFragment::new(&fragment_id, start, end, attrs);
                     self.subfragments.push(sf);
                     Some(attrs)
                 })
@@ -1031,7 +1021,7 @@ impl Filesystem for FustaFS {
                     LABELS_FILE      => (FileType::RegularFile, LABELS_FILE_NAME.to_owned()),
                 };
                 for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
-                    reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
+                    let _ = reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
                 }
                 reply.ok();
             }
@@ -1048,7 +1038,7 @@ impl Filesystem for FustaFS {
                 }
 
                 for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
-                    reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
+                    let _ = reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
                 }
                 reply.ok();
             }
@@ -1065,7 +1055,7 @@ impl Filesystem for FustaFS {
                 }
 
                 for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
-                    reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
+                    let _ = reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
                 }
                 reply.ok();
             }
@@ -1075,7 +1065,7 @@ impl Filesystem for FustaFS {
                     ROOT_DIR   => (FileType::Directory, "..".to_owned()),
                 };
                 for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
-                    reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
+                    let _ = reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
                 }
                 reply.ok();
             }

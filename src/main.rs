@@ -150,12 +150,7 @@ fn main() -> Result<()> {
         );
     }
 
-    let err_msg = if cfg!(target_os = "freebsd") {
-        format!(
-            "Please use `umount {:?}` to exit.",
-            &env.mountpoint.canonicalize().unwrap()
-        )
-    } else if cfg!(target_os = "macos") {
+    let err_msg = if cfg!(target_os = "freebsd") || cfg!(target_os = "macos") {
         format!(
             "Please use `umount {:?}` to exit.",
             &env.mountpoint.canonicalize().unwrap()

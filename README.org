@@ -151,6 +151,10 @@ If you have any question or if you encounter a problem, do not hesitate to [[htt
 * Acknowledgments
 FUSTA is standing on the shoulders of, among others, [[https://github.com/zargony/fuse-rs/][fuse-rs]], [[https://github.com/clap-rs/clap][clap]], [[https://github.com/danburkert/memmap-rs][memmap]] and [[https://github.com/knsd/daemonize][daemonize]].
 * Changelog
+** v1.2
+- FUSTA is now based on fuster instead of fuse-rs
+- Various optimization let FUSTA handle >40GB FASTA files in 6GB of RAM and much better performances
+- Added an optional notification system behind the =notifications= feature gate
 ** v1.1.1
 - Use MMAP by default. While it may lead to unpleasant load when performing heavy operation on very large files, this should be a rather uncommon case.
 ** v1.1

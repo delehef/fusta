@@ -28,62 +28,47 @@ fn main() -> Result<()> {
             .setting(AppSettings::UnifiedHelpMessage)
             .version(crate_version!())
             .author(crate_authors!())
-            .arg(
-                Arg::with_name("FASTA")
+            .arg(Arg::with_name("FASTA")
                     .help("A (multi)FASTA file containing the sequences to mount")
                     .required(true)
-                    .index(1),
-            )
-            .arg(
-                Arg::with_name("v")
+                    .index(1))
+            .arg(Arg::with_name("v")
                     .short("v")
                     .multiple(true)
-                    .help("Sets the level of verbosity"),
-            )
+                    .help("Sets the level of verbosity"))
 
-        // System options
-            .arg(
-                Arg::with_name("mountpoint")
+            // System options
+            .arg(Arg::with_name("mountpoint")
                     .short("o")
                     .long("mountpoint")
                     .help("Specifies the directory to use as mountpoint; it will be created if it does not exist")
                     .default_value("fusta")
                     .takes_value(true)
-                    .required(true),
-            )
-            .arg(
-                Arg::with_name("daemon")
+                    .required(true))
+            .arg(Arg::with_name("daemon")
                     .short("D")
                     .long("daemon")
-                    .help("Launch in the background; will automatically quit when unmounted"),
-            )
+                    .help("Launch in the background; will automatically quit when unmounted"))
 
-        // Technical options
-            .arg(
-                Arg::with_name("max-cache")
+            // Technical options
+            .arg(Arg::with_name("max-cache")
                     .short("C")
                     .long("max-cache")
                     .help("Set the maximum amount of memory to use to cache writes (MB)")
                     .default_value("500")
-                    .takes_value(true),
-            )
+                    .takes_value(true))
             .arg(Arg::with_name("cache")
-                 .long("cache")
-                 .help("Use either mmap, fseek(2) or just memory-backed cache to extract sequencse from FASTA files")
-                 .possible_values(&["file", "mmap", "memory"])
-                 .default_value("mmap")
-            )
-            .arg(
-                Arg::with_name("nonempty")
+                    .long("cache")
+                    .help("Use either mmap, fseek(2) or just memory-backed cache to extract sequencse from FASTA files")
+                    .possible_values(&["file", "mmap", "memory"])
+                    .default_value("mmap"))
+            .arg(Arg::with_name("nonempty")
                     .short("E")
                     .long("non-empty")
-                    .help("Perform the mount even if the destination folder is not empty"),
-            )
-            .arg(
-                Arg::with_name("cache-all")
+                    .help("Perform the mount even if the destination folder is not empty"))
+            .arg(Arg::with_name("cache-all")
                     .long("cache-all")
-                    .help("Cache all the sequences in RAM for faster access. WARNING as much RAM as the size of the FASTA file should be available. Recommended when needing fast access above all."),
-            )
+                    .help("Cache all the sequences in RAM for faster access. WARNING as much RAM as the size of the FASTA file should be available. Recommended when needing fast access above all."))
             .get_matches();
 
     let log_level = match args.occurrences_of("v") {

@@ -35,6 +35,14 @@ fn main() -> Result<()> {
                     .index(1),
             )
             .arg(
+                Arg::with_name("v")
+                    .short("v")
+                    .multiple(true)
+                    .help("Sets the level of verbosity"),
+            )
+
+        // System options
+            .arg(
                 Arg::with_name("mountpoint")
                     .short("o")
                     .long("mountpoint")
@@ -44,24 +52,20 @@ fn main() -> Result<()> {
                     .required(true),
             )
             .arg(
+                Arg::with_name("daemon")
+                    .short("D")
+                    .long("daemon")
+                    .help("Launch in the background; will automatically quit when unmounted"),
+            )
+
+        // Technical options
+            .arg(
                 Arg::with_name("max-cache")
                     .short("C")
                     .long("max-cache")
                     .help("Set the maximum amount of memory to use to cache writes (MB)")
                     .default_value("500")
                     .takes_value(true),
-            )
-            .arg(
-                Arg::with_name("v")
-                    .short("v")
-                    .multiple(true)
-                    .help("Sets the level of verbosity"),
-            )
-            .arg(
-                Arg::with_name("daemon")
-                    .short("D")
-                    .long("daemon")
-                    .help("Launch in the background; will automatically quit when unmounted"),
             )
             .arg(Arg::with_name("nommap").short("M").long("nommap").help(
                 "Don't use mmap, but rather fseek(2) to extract sequences. Slower, but more memory-efficient.",
@@ -71,6 +75,11 @@ fn main() -> Result<()> {
                     .short("E")
                     .long("non-empty")
                     .help("Perform the mount even if the destination folder is not empty"),
+            )
+            .arg(
+                Arg::with_name("cache-all")
+                    .long("cache-all")
+                    .help("Cache all the sequences in RAM for faster access. WARNING as much RAM as the size of the FASTA file should be available. Recommended when needing fast access above all."),
             )
             .get_matches();
 
@@ -123,9 +132,11 @@ fn main() -> Result<()> {
     let settings = FustaSettings {
         mmap: !args.is_present("nommap"),
         concretize_threshold: value_t!(args, "max-cache", usize).unwrap() * 1024 * 1024,
+        cache_all_sequences: args.is_present("cache-all"),
     };
 
-    info!("Using MMAP:      {}", settings.mmap);
+    info!("Using MMAP:             {}", settings.mmap);
+    info!("Caching all fragments:  {}", settings.cache_all_sequences);
 
     let fs = FustaFS::new(settings, &fasta_file);
     let mut env = RunEnvironment {

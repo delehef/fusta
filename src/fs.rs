@@ -132,15 +132,17 @@ impl VirtualFile for FragmentFile {
 
 #[derive(Debug)]
 enum Backing {
-    File(SString, usize, usize),
-    Buffer(Vec<u8>),
-    MMap(memmap::Mmap),
+    File(SString, usize, usize),   // A start, end pair in a file
+    Buffer(Vec<u8>),               // A chunk of memory
+    PureBuffer(Vec<u8>),           // The same, but guaranteed pure (i.e. no newlines) - can be accessed directly
+    MMap(memmap::Mmap),            // A memmapped chunk of memory
 }
 impl Backing {
     fn len(&self) -> usize {
         match self {
             Backing::File(_, start, end) => end - start,
             Backing::Buffer(ref b) => b.len(),
+            Backing::PureBuffer(ref b) => b.len(),
             Backing::MMap(ref mmap) => mmap.len(),
         }
     }
@@ -253,7 +255,7 @@ impl Fragment {
     fn data_size(&self) -> usize {
         match &self.data {
             Backing::File(_, start, end) => end - start,
-            Backing::Buffer(ref b) => b.len(),
+            Backing::Buffer(ref b) | Backing::PureBuffer(ref b) => b.len(),
             Backing::MMap(ref mmap) => mmap.len(),
         }
     }
@@ -274,7 +276,7 @@ impl Fragment {
                     .unwrap_or_else(|_| panic!("Unable to read from `{}`", filename));
                 buffer.into_boxed_slice()
             }
-            Backing::Buffer(ref b) => b[..].into(),
+            Backing::Buffer(ref b) | Backing::PureBuffer(ref b) => b[..].into(),
             Backing::MMap(ref mmap) => mmap[..].into(),
         }
     }
@@ -291,7 +293,7 @@ impl Fragment {
                     .unwrap_or_else(|_| panic!("Unable to read from `{}`", filename));
                 buffer.into_boxed_slice()
             }
-            Backing::Buffer(ref b) => {
+            Backing::Buffer(ref b) | Backing::PureBuffer(ref b) => {
                 let start = offset as usize;
                 let end = std::cmp::min(b.len() as i64, offset + size as i64) as usize;
                 b[start..end].into()
@@ -305,7 +307,9 @@ impl Fragment {
     }
 
     // The same as `chunk`, but skipping new lines.
-    fn true_chunk(&self, offset: i64, size: u32) -> Box<[u8]> {
+    fn pure_chunk(&self, offset: i64, size: u32) -> Box<[u8]> {
+        let offset = offset as usize;
+        let size = size as usize;
         match &self.data {
             Backing::File(filename, start, _) => {
                 let mut f = fs::File::open(filename.as_str())
@@ -315,8 +319,8 @@ impl Fragment {
                 f.bytes()
                     .filter_map(Result::ok)
                     .filter(|&c| c != b'\n')
-                    .skip(offset as usize)
-                    .take(size as usize)
+                    .skip(offset)
+                    .take(size)
                     .collect::<Vec<_>>()
                     .into()
             }
@@ -324,10 +328,11 @@ impl Fragment {
                 .iter()
                 .cloned()
                 .filter(|&c| c != b'\n')
-                .skip(offset as usize)
-                .take(size as usize)
+                .skip(offset)
+                .take(size)
                 .collect::<Vec<_>>()
                 .into(),
+            Backing::PureBuffer(ref b) => b[offset .. offset+size].to_vec().into(),
             Backing::MMap(ref mmap) => mmap
                 .iter()
                 .cloned()
@@ -378,8 +383,9 @@ impl Fragment {
 }
 
 pub struct FustaSettings {
-    pub mmap: bool,
-    pub concretize_threshold: usize,
+    pub mmap: bool,                    // Shall we use mmap or direct file access
+    pub concretize_threshold: usize,   // How much leeway do we have in memory consumption (in B)
+    pub cache_all_sequences: bool,     // Shall we cache all read sequences in memory
 }
 
 #[derive(Debug)]
@@ -550,7 +556,7 @@ impl FustaFS {
         info!("Reading {}...", filename);
         let fasta_file =
             fs::File::open(filename).unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
-        let fragments = FastaReader::new(fasta_file).collect::<Vec<_>>();
+        let fragments = FastaReader::new(fasta_file, self.settings.cache_all_sequences).collect::<Vec<_>>();
         info!("Done.");
         let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
         keys.sort();
@@ -564,12 +570,14 @@ impl FustaFS {
         self.filename = filename.to_owned();
 
         self.fragments = fragments
-            .iter()
+            .into_iter()
             .map(|fragment| {
                 Fragment::new(
                     &fragment.id,
                     &fragment.name,
-                    if self.settings.mmap {
+                    if let Some(seq) = fragment.seq {
+                        Backing::PureBuffer(seq)
+                    } else if self.settings.mmap {
                         Backing::MMap(unsafe {
                             memmap::MmapOptions::new()
                                 .offset(fragment.pos.0 as u64)
@@ -603,7 +611,11 @@ impl FustaFS {
             }
         });
 
-        if !force && in_memory < self.settings.concretize_threshold {
+        // We only concretize if the call is not forced and
+        // 1. the allowed cache is not yet used
+        // or
+        // 2. the user wants to cache everything anyway
+        if !force && (in_memory < self.settings.concretize_threshold || !self.settings.cache_all_sequences) {
             info!(
                 "Using {:.2}MB out of {}; skipping concretization",
                 in_memory / (1024 * 1024),
@@ -1041,7 +1053,7 @@ impl Filesystem for FustaFS {
                 let subfragment = self.subfragment_from_ino(ino).unwrap();
                 match self.fragment_from_id(&subfragment.fragment) {
                     Some(fragment) => {
-                        reply.data(&fragment.true_chunk(offset + subfragment.start as i64, size))
+                        reply.data(&fragment.pure_chunk(offset + subfragment.start as i64, size))
                     }
                     _ => {
                         error!("No fragment linked to ino {}", ino);
@@ -1578,8 +1590,8 @@ impl Filesystem for FustaFS {
                     tmpfile
                         .seek(SeekFrom::Start(0))
                         .expect("Unable to seek in temporary file");
-                    let fastas = FastaReader::new(&tmpfile).collect::<Vec<_>>();
-                    let new_keys = fastas.iter().map(|f| &f.id).collect::<Vec<_>>();
+                    let new_fragments = FastaReader::new(&tmpfile, true).collect::<Vec<_>>();
+                    let new_keys = new_fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
                     let old_keys = self
                         .fragments
                         .iter()
@@ -1592,23 +1604,15 @@ impl Filesystem for FustaFS {
                         self.fragments.retain(|f| !new_keys.contains(&&f.id))
                     }
 
-                    self.fragments.extend(fastas.iter().filter_map(|fasta| {
-                        if old_keys.contains(&fasta.id) && NO_OVERWRITE {
-                            error!("Skipping `{}`, already existing", &fasta.id);
+                    self.fragments.extend(new_fragments.into_iter().filter_map(|new_fragment| {
+                        if old_keys.contains(&new_fragment.id) && NO_OVERWRITE {
+                            error!("Skipping `{}`, already existing", &new_fragment.id);
                             None
                         } else {
-                            let mut seq = vec![0u8; fasta.pos.1 - fasta.pos.0];
-                            tmpfile
-                                .seek(SeekFrom::Start(fasta.pos.0 as u64))
-                                .expect("Unable to seek in temporary file");
-                            let read = tmpfile
-                                .read(&mut seq)
-                                .expect("Unable to read from temporary file");
-
                             Some(Fragment::new(
-                                &fasta.id,
-                                &fasta.name,
-                                Backing::Buffer(seq[0..read].to_vec()),
+                                &new_fragment.id,
+                                &new_fragment.name,
+                                Backing::PureBuffer(new_fragment.seq.unwrap()),
                                 pending.1.seq_ino,
                                 pending.1.fasta_ino,
                                 pending.1.attrs.atime,

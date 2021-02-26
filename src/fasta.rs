@@ -7,6 +7,7 @@ pub struct Fragment {
     pub name: Option<String>,
     pub pos: (usize, usize),
     pub len: usize,
+    pub seq: Option<Vec<u8>>
 }
 
 pub struct FastaReader<T> {
@@ -14,15 +15,19 @@ pub struct FastaReader<T> {
     current_header: Option<String>,
     current_start: usize,
     current_offset: usize,
+
+    with_seq: bool,
 }
 
 impl<T: Read> FastaReader<T> {
-    pub fn new(file: T) -> FastaReader<T> {
+    pub fn new(file: T, with_seq: bool) -> FastaReader<T> {
         FastaReader {
             buffer_lines: BufReader::new(file).lines(),
             current_header: None,
             current_start: 0,
             current_offset: 0,
+
+            with_seq,
         }
     }
 }
@@ -31,6 +36,7 @@ impl<T: Read> Iterator for FastaReader<T> {
     type Item = Fragment;
 
     fn next(&mut self) -> Option<Fragment> {
+        let mut current_seq: Vec<u8> = Vec::new();
         while let Some(l) = self.buffer_lines.next() {
             let line = l.unwrap();
             let len = line.len() + 1;
@@ -49,6 +55,7 @@ impl<T: Read> Iterator for FastaReader<T> {
 
                         pos: (self.current_start, self.current_offset - len),
                         len: self.current_offset - self.current_start - len,
+                        seq: if self.with_seq { Some(current_seq) } else { None },
                     };
                     self.current_header = Some(String::from(&line[1..]));
 
@@ -60,6 +67,10 @@ impl<T: Read> Iterator for FastaReader<T> {
                     self.current_start = self.current_offset;
                 }
                 continue;
+            } else {
+                if self.with_seq {
+                    current_seq.extend(line.trim_end().as_bytes());
+                }
             }
         }
 
@@ -74,6 +85,7 @@ impl<T: Read> Iterator for FastaReader<T> {
                 },
                 pos: (self.current_start, self.current_offset),
                 len: self.current_offset - self.current_start,
+                seq: if self.with_seq { Some(current_seq) } else { None },
             };
             self.current_header = None;
             return Some(r);

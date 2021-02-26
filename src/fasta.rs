@@ -7,7 +7,7 @@ pub struct Fragment {
     pub name: Option<String>,
     pub pos: (usize, usize),
     pub len: usize,
-    pub seq: Option<Vec<u8>>
+    pub seq: Option<Vec<u8>>,
 }
 
 pub struct FastaReader<T> {
@@ -55,7 +55,11 @@ impl<T: Read> Iterator for FastaReader<T> {
 
                         pos: (self.current_start, self.current_offset - len),
                         len: self.current_offset - self.current_start - len,
-                        seq: if self.with_seq { Some(current_seq) } else { None },
+                        seq: if self.with_seq {
+                            Some(current_seq)
+                        } else {
+                            None
+                        },
                     };
                     self.current_header = Some(String::from(&line[1..]));
 
@@ -85,7 +89,11 @@ impl<T: Read> Iterator for FastaReader<T> {
                 },
                 pos: (self.current_start, self.current_offset),
                 len: self.current_offset - self.current_start,
-                seq: if self.with_seq { Some(current_seq) } else { None },
+                seq: if self.with_seq {
+                    Some(current_seq)
+                } else {
+                    None
+                },
             };
             self.current_header = None;
             return Some(r);

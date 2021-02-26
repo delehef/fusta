@@ -67,9 +67,12 @@ fn main() -> Result<()> {
                     .default_value("500")
                     .takes_value(true),
             )
-            .arg(Arg::with_name("nommap").short("M").long("nommap").help(
-                "Don't use mmap, but rather fseek(2) to extract sequences. Slower, but more memory-efficient.",
-            ))
+            .arg(Arg::with_name("cache")
+                 .long("cache")
+                 .help("Use either mmap, fseek(2) or just memory-backed cache to extract sequencse from FASTA files")
+                 .possible_values(&["file", "mmap", "memory"])
+                 .default_value("mmap")
+            )
             .arg(
                 Arg::with_name("nonempty")
                     .short("E")
@@ -130,13 +133,16 @@ fn main() -> Result<()> {
         &OsStr::new("default_permissions"),
     ];
     let settings = FustaSettings {
-        mmap: !args.is_present("nommap"),
+        cache: match args.value_of("cache").unwrap() {
+            "mmap" => fs::Cache::Mmap,
+            "file" => fs::Cache::File,
+            "memory" => fs::Cache::RAM,
+            _ => unreachable!(),
+        },
         concretize_threshold: value_t!(args, "max-cache", usize).unwrap() * 1024 * 1024,
-        cache_all_sequences: args.is_present("cache-all"),
     };
 
-    info!("Using MMAP:             {}", settings.mmap);
-    info!("Caching all fragments:  {}", settings.cache_all_sequences);
+    info!("Caching method:  {:#?}", settings.cache);
 
     let fs = FustaFS::new(settings, &fasta_file);
     let mut env = RunEnvironment {

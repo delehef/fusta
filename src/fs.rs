@@ -332,7 +332,7 @@ impl Fragment {
                 .take(size)
                 .collect::<Vec<_>>()
                 .into(),
-            Backing::PureBuffer(ref b) => b[offset .. offset+size].to_vec().into(),
+            Backing::PureBuffer(ref b) => b[offset..offset + size].to_vec().into(),
             Backing::MMap(ref mmap) => mmap
                 .iter()
                 .cloned()
@@ -382,10 +382,15 @@ impl Fragment {
     }
 }
 
+#[derive(PartialEq, Debug)]
+pub enum Cache {
+    Mmap, // Store fragments as mmapped-memory
+    File, // ...or as filename:start-end pairs
+    RAM,  // Buffer all fragments in cache
+}
 pub struct FustaSettings {
-    pub mmap: bool,                    // Shall we use mmap or direct file access
-    pub concretize_threshold: usize,   // How much leeway do we have in memory consumption (in B)
-    pub cache_all_sequences: bool,     // Shall we cache all read sequences in memory
+    pub cache: Cache,
+    pub concretize_threshold: usize, // How much leeway do we have in memory consumption (in B)
 }
 
 #[derive(Debug)]
@@ -556,7 +561,8 @@ impl FustaFS {
         info!("Reading {}...", filename);
         let fasta_file =
             fs::File::open(filename).unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
-        let fragments = FastaReader::new(fasta_file, self.settings.cache_all_sequences).collect::<Vec<_>>();
+        let fragments =
+            FastaReader::new(fasta_file, self.settings.cache == Cache::RAM).collect::<Vec<_>>();
         info!("Done.");
         let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
         keys.sort();
@@ -575,18 +581,18 @@ impl FustaFS {
                 Fragment::new(
                     &fragment.id,
                     &fragment.name,
-                    if let Some(seq) = fragment.seq {
-                        Backing::PureBuffer(seq)
-                    } else if self.settings.mmap {
-                        Backing::MMap(unsafe {
+                    match self.settings.cache {
+                        Cache::Mmap => Backing::MMap(unsafe {
                             memmap::MmapOptions::new()
                                 .offset(fragment.pos.0 as u64)
                                 .len(fragment.len)
                                 .map(&file)
                                 .unwrap()
-                        })
-                    } else {
-                        Backing::File(filename.into(), fragment.pos.0, fragment.pos.1)
+                        }),
+                        Cache::File => {
+                            Backing::File(filename.into(), fragment.pos.0, fragment.pos.1)
+                        }
+                        Cache::RAM => Backing::PureBuffer(fragment.seq.unwrap()),
                     },
                     self.new_ino(),
                     self.new_ino(),
@@ -615,7 +621,10 @@ impl FustaFS {
         // 1. the allowed cache is not yet used
         // or
         // 2. the user wants to cache everything anyway
-        if !force && (in_memory < self.settings.concretize_threshold || !self.settings.cache_all_sequences) {
+        if !force
+            && (in_memory < self.settings.concretize_threshold
+                || !(self.settings.cache == Cache::RAM))
+        {
             info!(
                 "Using {:.2}MB out of {}; skipping concretization",
                 in_memory / (1024 * 1024),
@@ -1604,22 +1613,23 @@ impl Filesystem for FustaFS {
                         self.fragments.retain(|f| !new_keys.contains(&&f.id))
                     }
 
-                    self.fragments.extend(new_fragments.into_iter().filter_map(|new_fragment| {
-                        if old_keys.contains(&new_fragment.id) && NO_OVERWRITE {
-                            error!("Skipping `{}`, already existing", &new_fragment.id);
-                            None
-                        } else {
-                            Some(Fragment::new(
-                                &new_fragment.id,
-                                &new_fragment.name,
-                                Backing::PureBuffer(new_fragment.seq.unwrap()),
-                                pending.1.seq_ino,
-                                pending.1.fasta_ino,
-                                pending.1.attrs.atime,
-                                pending.1.attrs.mtime,
-                            ))
-                        }
-                    }));
+                    self.fragments
+                        .extend(new_fragments.into_iter().filter_map(|new_fragment| {
+                            if old_keys.contains(&new_fragment.id) && NO_OVERWRITE {
+                                error!("Skipping `{}`, already existing", &new_fragment.id);
+                                None
+                            } else {
+                                Some(Fragment::new(
+                                    &new_fragment.id,
+                                    &new_fragment.name,
+                                    Backing::PureBuffer(new_fragment.seq.unwrap()),
+                                    pending.1.seq_ino,
+                                    pending.1.fasta_ino,
+                                    pending.1.attrs.atime,
+                                    pending.1.attrs.mtime,
+                                ))
+                            }
+                        }));
                 }
             }
             self.concretize(false);

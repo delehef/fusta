@@ -132,10 +132,10 @@ impl VirtualFile for FragmentFile {
 
 #[derive(Debug)]
 enum Backing {
-    File(SString, usize, usize),   // A start, end pair in a file
-    Buffer(Vec<u8>),               // A chunk of memory
-    PureBuffer(Vec<u8>),           // The same, but guaranteed pure (i.e. no newlines) - can be accessed directly
-    MMap(memmap::Mmap),            // A memmapped chunk of memory
+    File(SString, usize, usize), // A start, end pair in a file
+    Buffer(Vec<u8>),             // A chunk of memory
+    PureBuffer(Vec<u8>), // The same, but guaranteed pure (i.e. no newlines) - can be accessed directly
+    MMap(memmap::Mmap),  // A memmapped chunk of memory
 }
 impl Backing {
     fn len(&self) -> usize {

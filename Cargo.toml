@@ -6,23 +6,23 @@ edition = "2018"
 description = "FUSTA leverages the FUSE interface transparently manipulate multiFASTA files as single files"
 
 [dependencies]
-memmap = "0.7"
-log = "0.4"
-simplelog = "0.10"
-libc = "0.2"
+anyhow = "1"
+ascii_table = "3"
 clap = "2.0"
 ctrlc = { version = "3.0", features = ["termination"] }
 daemonize = "0.4"
-maplit = "1.0"
-tempfile = "3"
-anyhow = "1"
-ascii_table = "3"
-num-format = "0.4"
-lazy_static = "1"
-regex = "1"
 fuser = "0.7"
-smartstring = "0.2"
+lazy_static = "1"
+libc = "0.2"
+log = "0.4"
+maplit = "1.0"
+memmap = "0.7"
 notify-rust = { version = "4", optional = true }
+num-format = "0.4"
+regex = "1"
+simplelog = "0.10"
+smartstring = "0.2"
+tempfile = "3"
 
 [features]
 notifications = ["notify-rust"]

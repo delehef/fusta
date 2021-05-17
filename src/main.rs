@@ -73,7 +73,12 @@ fn main() -> Result<()> {
         _ => LevelFilter::Trace,
     };
     let log_config = ConfigBuilder::new().set_time_format_str("").build();
-
+    let mut loggers: Vec<Box<dyn SharedLogger>> = vec![TermLogger::new(
+        log_level,
+        log_config.clone(),
+        TerminalMode::Mixed,
+        ColorChoice::Auto,
+    )];
     if args.is_present("daemon") {
         let log_file_path = tempfile::Builder::new()
             .prefix("fusta-")
@@ -82,27 +87,13 @@ fn main() -> Result<()> {
             .context("Unable to create a temporary file")?;
 
         println!(
-            "Logs ({:?}) available in {:?}",
+            "Logs ({:?}) available in {}",
             log_level,
-            log_file_path.path()
+            log_file_path.path().display()
         );
-        WriteLogger::init(log_level, log_config, log_file_path)
-            .context("Unable to initialize logger")?;
-
-        let pid_file = tempfile::Builder::new()
-            .prefix("fusta-")
-            .suffix(".pid")
-            .tempfile()
-            .context("Unable to create a temporary PID file")?;
-
-        Daemonize::new()
-            .pid_file(pid_file)
-            .working_directory(std::env::current_dir().context("Unable to read current directory")?)
-            .start()?;
-    } else {
-        TermLogger::init(log_level, log_config, TerminalMode::Mixed)
-            .context("Unable to initialize logger")?;
+        loggers.push(WriteLogger::new(log_level, log_config, log_file_path));
     }
+    CombinedLogger::init(loggers).context("Unable to init logger")?;
 
     let fasta_file = value_t!(args, "FASTA", String)?;
     let mountpoint = value_t!(args, "mountpoint", String)?;
@@ -121,10 +112,22 @@ fn main() -> Result<()> {
         },
         concretize_threshold: value_t!(args, "max-cache", usize).unwrap() * 1024 * 1024,
     };
-
     info!("Caching method:  {:#?}", settings.cache);
 
     let fs = FustaFS::new(settings, &fasta_file);
+    if args.is_present("daemon") {
+        let pid_file = tempfile::Builder::new()
+            .prefix("fusta-")
+            .suffix(".pid")
+            .tempfile()
+            .context("Unable to create a temporary PID file")?;
+
+        Daemonize::new()
+            .pid_file(pid_file)
+            .working_directory(std::env::current_dir().context("Unable to read current directory")?)
+            .start()?;
+    }
+
     let mut env = RunEnvironment {
         mountpoint: std::path::PathBuf::from(mountpoint),
         created_mountpoint: false,

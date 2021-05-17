@@ -401,6 +401,7 @@ struct PendingAppend {
     seq_ino: u64,
 }
 
+/// A Subfragment represent a portion of a fragment (chr:start-end)
 #[derive(Debug)]
 struct SubFragment {
     fragment: String,
@@ -439,9 +440,11 @@ lazy_static! {
 
 pub struct FustaFS {
     fragments: Vec<Fragment>,
+    name2fragment: HashMap<String, usize>,
+    ino2fragment: HashMap<u64, usize>,
+
     metadata: fs::Metadata,
     dir_attrs: BTreeMap<u64, FileAttr>,
-    name_to_fragment: HashMap<String, usize>,
     files: Vec<Box<dyn VirtualFile + Send>>,
     filename: String,
     settings: FustaSettings,
@@ -459,6 +462,9 @@ impl FustaFS {
         let metadata = fs::metadata(filename).unwrap();
         let mut r = FustaFS {
             fragments: Vec::new(),
+            name2fragment: HashMap::new(),
+            ino2fragment: HashMap::new(),
+
             filename: String::new(),
             dir_attrs: btreemap! {
                 // Virtual folders
@@ -496,7 +502,6 @@ impl FustaFS {
             current_ino: FIRST_INO,
             pending_appends: BTreeMap::new(),
             subfragments: Vec::new(),
-            name_to_fragment: HashMap::new(),
             dirty: false,
         };
 
@@ -562,7 +567,6 @@ impl FustaFS {
             fs::File::open(filename).unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
         let fragments =
             FastaReader::new(fasta_file, self.settings.cache == Cache::RAM).collect::<Vec<_>>();
-        info!("Done.");
         let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
         keys.sort();
         keys.dedup();
@@ -687,38 +691,38 @@ impl FustaFS {
     }
 
     fn fragment_from_id(&self, id: &str) -> Option<&Fragment> {
-        self.name_to_fragment.get(id).map(|&i| &self.fragments[i])
+        self.name2fragment.get(id).map(|&i| &self.fragments[i])
     }
 
     fn fragment_from_ino(&self, ino: u64) -> Option<&Fragment> {
-        self.fragments
-            .iter()
-            .find(|f| f.fasta_file.ino == ino || f.seq_file.ino == ino)
+        self.ino2fragment
+            .get(&ino)
+            .and_then(|&i| self.fragments.get(i))
     }
 
     fn mut_fragment_from_ino(&mut self, ino: u64) -> Option<&mut Fragment> {
-        self.fragments
-            .iter_mut()
-            .find(|f| f.fasta_file.ino == ino || f.seq_file.ino == ino)
+        if let Some(i) = self.ino2fragment.get(&ino) {
+            self.fragments.get_mut(*i)
+        } else {
+            None
+        }
     }
 
     fn fragment_from_fasta_filename(&self, name: &str) -> Option<&Fragment> {
         name.strip_suffix(FASTA_EXT)
-            .map(|id| self.name_to_fragment.get(id))
-            .flatten()
-            .map(|&i| &self.fragments[i])
+            .and_then(|id| self.name2fragment.get(id))
+            .and_then(|i| self.fragments.get(*i))
     }
 
     fn fragment_from_seq_filename(&self, name: &str) -> Option<&Fragment> {
         name.strip_suffix(SEQ_EXT)
-            .map(|id| self.name_to_fragment.get(id))
-            .flatten()
-            .map(|&i| &self.fragments[i])
+            .and_then(|id| self.name2fragment.get(id))
+            .and_then(|i| self.fragments.get(*i))
     }
 
     fn mut_fragment_from_seq_filename(&mut self, name: &str) -> Option<&mut Fragment> {
         let id = name.strip_suffix(SEQ_EXT).unwrap();
-        if let Some(i) = self.name_to_fragment.get(id) {
+        if let Some(i) = self.name2fragment.get(id) {
             Some(&mut self.fragments[*i])
         } else {
             None
@@ -727,7 +731,7 @@ impl FustaFS {
 
     fn mut_fragment_from_fasta_filename(&mut self, name: &str) -> Option<&mut Fragment> {
         let id = name.strip_suffix(FASTA_EXT).unwrap();
-        if let Some(i) = self.name_to_fragment.get(id) {
+        if let Some(i) = self.name2fragment.get(id) {
             Some(&mut self.fragments[*i])
         } else {
             None
@@ -817,16 +821,32 @@ impl FustaFS {
             self.make_info_buffer();
             self.make_info_csv_buffer();
             self.make_labels_buffer();
-            self.update_name_mapping();
+            self.update_indices();
             debug!("Done.")
         }
     }
 
-    fn update_name_mapping(&mut self) {
-        self.name_to_fragment.clear();
-        for (i, f) in self.fragments.iter().enumerate() {
-            self.name_to_fragment.insert(f.id.clone().into(), i);
-        }
+    fn update_indices(&mut self) {
+        self.name2fragment = self
+            .fragments
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (f.id.clone().into(), i))
+            .collect::<HashMap<_, _>>();
+
+        self.ino2fragment = self
+            .fragments
+            .iter()
+            .enumerate()
+            .flat_map(|(i, f)| {
+                vec![
+                    // TODO array::IntoIter::new([(x, y), (z, w)]) for Rust v1.57
+                    (f.fasta_file.ino.clone(), i),
+                    (f.seq_file.ino.clone(), i),
+                ]
+                .into_iter()
+            })
+            .collect::<HashMap<_, _>>();
     }
 
     fn is_fasta_file(&self, ino: u64) -> bool {
@@ -834,7 +854,11 @@ impl FustaFS {
     }
 
     fn is_seq_file(&self, ino: u64) -> bool {
-        self.fragments.iter().any(|f| f.seq_file.ino == ino)
+        self.ino2fragment
+            .get(&ino)
+            .and_then(|i| self.fragments.get(*i))
+            .map(|f| f.seq_file.ino == ino)
+            .unwrap_or(false)
     }
 
     fn is_append_file(&self, ino: u64) -> bool {
@@ -875,8 +899,6 @@ impl FustaFS {
                     Some(attrs)
                 })
                 .ok_or_else(|| unimplemented!())
-
-        // Ok(attrs)
         } else {
             Err(error_message)
         }
@@ -1007,7 +1029,7 @@ impl Filesystem for FustaFS {
                 let end = std::cmp::min(start + size as usize, data.len());
                 reply.data(&data[start..end]);
             }
-            ino if self.fragment_from_ino(ino).is_some() => {
+            ino if self.ino2fragment.contains_key(&ino) => {
                 let fragment = match self.mut_fragment_from_ino(ino) {
                     Some(f) => f,
                     _ => {

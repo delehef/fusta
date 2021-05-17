@@ -156,6 +156,13 @@ The cache option is key in adapting FUSTA to your use, and for files of non-triv
 - =file= :: in this mode, FUSTA store all the fragments as offsets in their file, and access them through =fseek= accesses. The performances will probably be the worse, but memory consumption will be kept to the minimal.
 - =mmap= :: this mode is extremely similar to the previous one, safe that access will proceed through [[https://en.wikipedia.org/wiki/Mmap][mmmap(2)]] reads, leveraging the caching facilities of the OS -- this is the default mode.
 - =memory= :: in this mode, all fragments will directly be copied to memory. Performances will be at their best, but enough memory should be available to store the entirety of the processed files.
+* Troubleshooting
+*** I get a "Cannot allocate memory" error
+The FASTA files may be overflowing the default setting of the memory overcommit guard. You may change the overcommiting setting with =sysctl -w vm.overcommit_memory 1=, or use =--cache=file= for less performances, but less virtual memory pressure.
+*** I *still* get a "Cannot allocate memory" error
+Your FASTA file may contain too many fragments w.r.t. the number of mmap pages that can be mapped by a program. You may increase =max_map_count= with =sysctl -w vm.max_map_count 200000=, or use =--cache=file= for less performances, but less virtual memory pressure.
+*** I have another error
+[[https://github.com/delehef/fusta/issues][Open an issue stating your problem!]]
 * Contact
 If you have any question or if you encounter a problem, do not hesitate to [[https://github.com/delehef/fusta/issues][open an issue]].
 * Acknowledgments

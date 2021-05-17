@@ -57,16 +57,13 @@ fn main() -> Result<()> {
              .takes_value(true))
         .arg(Arg::with_name("cache")
              .long("cache")
-             .help("Use either mmap, fseek(2) or just memory-backed cache to extract sequencse from FASTA files")
+             .help("Use either mmap, fseek(2) or memory-backed cache to extract sequences from FASTA files. WARNING: memory caching use as much RAM as the size of the FASTA file should be available.")
              .possible_values(&["file", "mmap", "memory"])
              .default_value("mmap"))
         .arg(Arg::with_name("nonempty")
              .short("E")
              .long("non-empty")
              .help("Perform the mount even if the destination folder is not empty"))
-        .arg(Arg::with_name("cache-all")
-             .long("cache-all")
-             .help("Cache all the sequences in RAM for faster access. WARNING as much RAM as the size of the FASTA file should be available. Recommended when needing fast access above all."))
         .get_matches();
 
     let log_level = match args.occurrences_of("v") {

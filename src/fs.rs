@@ -1418,16 +1418,9 @@ impl Filesystem for FustaFS {
                             {
                                 // Redim the file
                                 let mut fragment = self.mut_fragment_from_ino(ino).unwrap();
-                                match fragment.data {
-                                    Backing::Buffer(_) => {}
-                                    _ => {
-                                        fragment.data = Backing::Buffer(fragment.data().to_vec());
-                                    }
+                                if !matches!(fragment.data, Backing::Buffer(_)) {
+                                    fragment.data = Backing::Buffer(fragment.data().to_vec());
                                 }
-                                // TODO Update when 1.44 is available
-                                // if !matches!(fragment.data, Backing::Buffer(_)) {
-                                //     fragment.data = Backing::Buffer(fragment.data().to_vec());
-                                // }
                                 fragment.extend(size);
                                 fragment.refresh_virtual_files();
                                 self.dirty = true;

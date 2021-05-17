@@ -549,7 +549,6 @@ impl FustaFS {
     fn new_ino(&mut self) -> u64 {
         let r = self.current_ino;
         self.current_ino += 1;
-        trace!("New ino: {}", r);
         r
     }
 
@@ -601,7 +600,7 @@ impl FustaFS {
                 )
             })
             .collect::<Vec<_>>();
-        self.refresh_metadata();
+        self.refresh_metadata(true);
     }
 
     fn concretize(&mut self, force: bool) {
@@ -812,13 +811,15 @@ impl FustaFS {
         }
     }
 
-    fn refresh_metadata(&mut self) {
-        debug!("Refreshing metadata...");
-        self.make_info_buffer();
-        self.make_info_csv_buffer();
-        self.make_labels_buffer();
-        self.update_name_mapping();
-        debug!("Done.")
+    fn refresh_metadata(&mut self, force: bool) {
+        if self.dirty || force {
+            debug!("Refreshing metadata...");
+            self.make_info_buffer();
+            self.make_info_csv_buffer();
+            self.make_labels_buffer();
+            self.update_name_mapping();
+            debug!("Done.")
+        }
     }
 
     fn update_name_mapping(&mut self) {
@@ -1169,7 +1170,7 @@ impl Filesystem for FustaFS {
                     if length_after != length_before {
                         self.dirty = true;
                     }
-                    self.refresh_metadata();
+                    self.refresh_metadata(false);
                     self.concretize(false);
                     reply.ok();
                 } else {
@@ -1520,7 +1521,7 @@ impl Filesystem for FustaFS {
                             info!("Renaming {:?} -> {:?}", name, newname);
                             self.dirty = true;
                             self.concretize(false);
-                            self.refresh_metadata();
+                            self.refresh_metadata(false);
                             reply.ok();
                         } else {
                             warn!("\t{:?} does not exist", name);
@@ -1539,7 +1540,7 @@ impl Filesystem for FustaFS {
     fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
         trace!("FSYNC");
         self.concretize(false);
-        self.refresh_metadata();
+        self.refresh_metadata(false);
         reply.ok();
     }
 
@@ -1553,7 +1554,7 @@ impl Filesystem for FustaFS {
     ) {
         trace!("FSYNCDIR");
         self.concretize(false);
-        self.refresh_metadata();
+        self.refresh_metadata(false);
         reply.ok();
     }
 
@@ -1626,7 +1627,7 @@ impl Filesystem for FustaFS {
                 }
             }
             self.concretize(false);
-            self.refresh_metadata();
+            self.refresh_metadata(false);
         } else {
             debug!("Not a writeable file; ignoring")
         }

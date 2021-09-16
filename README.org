@@ -1,3 +1,11 @@
+* TL;DR
+ #+begin_src shell
+   fusta GRCh38.fa -o hg38
+   cat hg38/fasta/chr{X,Y}.fa > ~/sex_chrs.fa
+   cat hg38/get/chr17:18108706-18179802 > myo15a.fa
+   rm hg38/seq/chr{3,5}.seq
+   fusermount -u hg38
+ #+end_src
 * What is FUSTA?
 FUSTA is a FUSE-based virtual filesystem mirroring a (multi)FASTA file as a hierarchy of individual virtual files, simplifying efficient data extraction and bulk/automated processing of FASTA files.
 
@@ -27,19 +35,10 @@ Finally, you may wish to enable FUSE mounting without requiring administrator pe
 sudo sysctl vfs.usermount=1
 #+end_src
 *** From Source
-**** Prerequisites
-To build FUSTA from sources, you need to install the [[https://www.rust-lang.org/en-US/install.html][Rust compiler]]. Once it has been installed, clone the repository:
+To build FUSTA, you need to install the [[https://www.rust-lang.org/en-US/install.html][Rust compiler]]. You can then build FUSTA by running =cargo=, the Rust build tool:
 #+begin_src
-git clone https://github.com/delehef/fusta.git
+cargo install --git https://github.com/delehef/fusta
 #+end_src
-**** Installation
-You can then build FUSTA by running =cargo=, the Rust build tool:
-#+begin_src
-cd fusta
-cargo build --release
-#+end_src
-Once the build has concluded, you will find the binary in =target/release/fusta=. It can be run from there, or you may move it to a more standard location.
-
 * Usage
 ** Quick Start
 These commands run =fusta= in the background, mount the FASTA file =file.fa= in an automatically created =fusta= folder, exposing all the sequences contained in =file.fa= there. The call to =tree= will display the virtual hierarchy, then =fusermount= is called to cleanly unmount the file.

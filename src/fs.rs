@@ -194,7 +194,6 @@ impl Fragment {
                 rdev: 0,
                 flags: 0,
                 blksize: 512,
-                padding: 0,
             },
         }
     }
@@ -526,7 +525,6 @@ impl FustaFS {
             rdev: 0,
             flags: 0,
             blksize: 0,
-            padding: 0,
         }
     }
 
@@ -547,7 +545,6 @@ impl FustaFS {
             rdev: 0,
             flags: 0,
             blksize: 512,
-            padding: 0,
         }
     }
 
@@ -1260,7 +1257,6 @@ impl Filesystem for FustaFS {
                     rdev: 0,
                     flags: 0,
                     blksize: 512,
-                    padding: 0,
                 };
                 let pending = PendingAppend {
                     data: Vec::new(),
@@ -1483,7 +1479,7 @@ impl Filesystem for FustaFS {
         }
     }
 
-    fn destroy(&mut self, _req: &Request) {
+    fn destroy(&mut self) {
         info!("DESTROYING");
         self.concretize(false)
     }

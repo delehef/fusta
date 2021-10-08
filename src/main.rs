@@ -60,10 +60,6 @@ fn main() -> Result<()> {
              .help("Use either mmap, fseek(2) or memory-backed cache to extract sequences from FASTA files. WARNING: memory caching use as much RAM as the size of the FASTA file should be available.")
              .possible_values(&["file", "mmap", "memory"])
              .default_value("mmap"))
-        .arg(Arg::with_name("nonempty")
-             .short("E")
-             .long("non-empty")
-             .help("Perform the mount even if the destination folder is not empty"))
         .get_matches();
 
     let log_level = match args.occurrences_of("v") {
@@ -97,11 +93,11 @@ fn main() -> Result<()> {
 
     let fasta_file = value_t!(args, "FASTA", String)?;
     let mountpoint = value_t!(args, "mountpoint", String)?;
-    let mut fuse_options: Vec<&OsStr> = vec![
-        &OsStr::new("-o"),
-        &OsStr::new("auto_unmount"),
-        &OsStr::new("-o"),
-        &OsStr::new("default_permissions"),
+    let mut fuse_options: Vec<fuser::MountOption> = vec![
+        fuser::MountOption::FSName("FUSTA".to_string()),
+        // fuser::MountOption::AllowRoot,
+        // fuser::MountOption::AutoUnmount,
+        fuser::MountOption::DefaultPermissions,
     ];
     let settings = FustaSettings {
         cache: match args.value_of("cache").unwrap() {
@@ -140,14 +136,9 @@ fn main() -> Result<()> {
     if !env.mountpoint.is_dir() {
         bail!("mount point `{:?}` is not a directory", env.mountpoint);
     }
-
-    if args.is_present("nonempty") {
-        fuse_options.push(&OsStr::new("-o"));
-        fuse_options.push(&OsStr::new("nonempty"));
-    }
-    if !args.is_present("nonempty") && std::fs::read_dir(&env.mountpoint)?.take(1).count() != 0 {
+    if std::fs::read_dir(&env.mountpoint)?.take(1).count() != 0 {
         bail!(
-            "mount point {:?} is not empty, use the -E flag to mount in a non-empty directory.",
+            "mount point {:?} is not empty.",
             env.mountpoint
         );
     }
@@ -166,7 +157,7 @@ fn main() -> Result<()> {
     ctrlc::set_handler(move || {
         error!("{}", err_msg);
     })?;
-    match fuser::mount(fs, &env.mountpoint, &fuse_options) {
+    match fuser::mount2(fs, &env.mountpoint, &fuse_options) {
         Ok(()) => {}
         _ => {
             error!("Unable to mount the FUSE filesystem");

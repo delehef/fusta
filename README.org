@@ -142,7 +142,6 @@ OPTIONS:
     -C, --max-cache <max-cache>      Set the maximum amount of memory to use to cache writes (MB) [default: 500]
     -o, --mountpoint <mountpoint>    Specifies the directory to use as mountpoint; it will be created if it does not
                                      exist [default: fusta]
-    -E, --non-empty                  Perform the mount even if the destination folder is not empty
     -v                               Sets the level of verbosity
     -V, --version                    Prints version information
 

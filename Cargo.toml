@@ -11,7 +11,7 @@ ascii_table = "3"
 clap = "2.0"
 ctrlc = { version = "3.0", features = ["termination"] }
 daemonize = "0.4"
-fuser = "0.7"
+fuser = "0.9"
 lazy_static = "1"
 libc = "0.2"
 log = "0.4"

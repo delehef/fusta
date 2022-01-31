@@ -289,7 +289,7 @@ impl Fragment {
                 f.seek(SeekFrom::Start(*start as u64 + offset as u64))
                     .unwrap_or_else(|_| panic!("Unable to seek in `{}`", filename));
                 f.read_exact(&mut buffer)
-                    .unwrap_or_else(|_| panic!("Unable to read from `{}`", filename));
+                    .unwrap_or_else(|_| panic!("Unable to read {}:{} from `{}`", offset, offset + size as i64, filename));
                 buffer.into_boxed_slice()
             }
             Backing::Buffer(ref b) | Backing::PureBuffer(ref b) => {

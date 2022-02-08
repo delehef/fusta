@@ -135,7 +135,7 @@ enum Backing {
     File(SString, usize, usize), // A start, end pair in a file
     Buffer(Vec<u8>),             // A chunk of memory
     PureBuffer(Vec<u8>), // The same, but guaranteed pure (i.e. no newlines) - can be accessed directly
-    MMap(memmap::Mmap),  // A memmapped chunk of memory
+    MMap(memmap2::Mmap),  // A memmapped chunk of memory
 }
 impl Backing {
     fn len(&self) -> usize {
@@ -583,7 +583,7 @@ impl FustaFS {
                     &fragment.name,
                     match self.settings.cache {
                         Cache::Mmap => Backing::MMap(unsafe {
-                            memmap::MmapOptions::new()
+                            memmap2::MmapOptions::new()
                                 .offset(fragment.pos.0 as u64)
                                 .len(fragment.len)
                                 .map(&file)

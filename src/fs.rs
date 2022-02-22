@@ -1480,7 +1480,7 @@ impl Filesystem for FustaFS {
     }
 
     fn destroy(&mut self) {
-        info!("DESTROYING");
+        trace!("DESTROYING");
         self.concretize(false)
     }
 

@@ -63,9 +63,9 @@ fn main() -> Result<()> {
         .get_matches();
 
     let log_level = match args.occurrences_of("v") {
-        0 => LevelFilter::Warn,
-        1 => LevelFilter::Info,
-        2 => LevelFilter::Debug,
+        0 => LevelFilter::Info,
+        1 => LevelFilter::Debug,
+        2 => LevelFilter::Trace,
         _ => LevelFilter::Trace,
     };
     let log_config = ConfigBuilder::new().set_time_format_str("").build();
@@ -175,7 +175,6 @@ fn main() -> Result<()> {
         }
     }
     cleanup(&env)?;
-    println!("Quitting");
 
     Ok(())
 }

@@ -154,9 +154,9 @@ fn main() -> Result<()> {
             &env.mountpoint.canonicalize().unwrap()
         )
     };
-    // ctrlc::set_handler(move || {
-    //     error!("{}", err_msg);
-    // })?;
+    ctrlc::set_handler(move || {
+        error!("{}", err_msg);
+    })?;
     match fuser::mount2(fs, &env.mountpoint, &fuse_options) {
         Ok(()) => {}
         _ => {

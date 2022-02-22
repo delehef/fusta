@@ -166,7 +166,9 @@ If you have any question or if you encounter a problem, do not hesitate to [[htt
 * Acknowledgments
 FUSTA is standing on the shoulders of, among others, [[https://github.com/cberner/fuser][fuser]], [[https://github.com/clap-rs/clap][clap]], [[https://github.com/danburkert/memmap-rs][memmap]] and [[https://github.com/knsd/daemonize][daemonize]].
 * Changelog
-** v1.5.1
+** v1.5.3
+- Improve notification system
+** v1.5.2
 - Daemonize by default
 ** v1.5.1
 - Update memmap to memmap2

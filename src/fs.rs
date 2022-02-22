@@ -1,4 +1,6 @@
 #![allow(clippy::redundant_field_names)]
+#[cfg(feature = "notifications")]
+use crate::Notification;
 use fuser::*;
 use libc::*;
 use log::*;
@@ -135,7 +137,7 @@ enum Backing {
     File(SString, usize, usize), // A start, end pair in a file
     Buffer(Vec<u8>),             // A chunk of memory
     PureBuffer(Vec<u8>), // The same, but guaranteed pure (i.e. no newlines) - can be accessed directly
-    MMap(memmap2::Mmap),  // A memmapped chunk of memory
+    MMap(memmap2::Mmap), // A memmapped chunk of memory
 }
 impl Backing {
     fn len(&self) -> usize {
@@ -288,8 +290,14 @@ impl Fragment {
                     .unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
                 f.seek(SeekFrom::Start(*start as u64 + offset as u64))
                     .unwrap_or_else(|_| panic!("Unable to seek in `{}`", filename));
-                f.read_exact(&mut buffer)
-                    .unwrap_or_else(|_| panic!("Unable to read {}:{} from `{}`", offset, offset + size as i64, filename));
+                f.read_exact(&mut buffer).unwrap_or_else(|_| {
+                    panic!(
+                        "Unable to read {}:{} from `{}`",
+                        offset,
+                        offset + size as i64,
+                        filename
+                    )
+                });
                 buffer.into_boxed_slice()
             }
             Backing::Buffer(ref b) | Backing::PureBuffer(ref b) => {
@@ -411,7 +419,7 @@ struct SubFragment {
 impl SubFragment {
     fn new(fragment: &str, start: usize, end: usize, attrs: FileAttr) -> SubFragment {
         let end = if end < start {
-            info!(
+            warn!(
                 "{}:{}-{}: {} < {}; using {} instead",
                 fragment,
                 start,
@@ -602,6 +610,7 @@ impl FustaFS {
             })
             .collect::<Vec<_>>();
         self.refresh_metadata(true);
+        info!("Done.")
     }
 
     fn concretize(&mut self, force: bool) {
@@ -625,7 +634,7 @@ impl FustaFS {
             && (in_memory < self.settings.concretize_threshold
                 || !(self.settings.cache == Cache::RAM))
         {
-            info!(
+            trace!(
                 "Using {:.2}MB out of {}; skipping concretization",
                 in_memory / (1024 * 1024),
                 self.settings.concretize_threshold / (1024 * 1024)
@@ -633,14 +642,11 @@ impl FustaFS {
             return;
         }
 
-        info!("========== CONCRETIZING ========");
+        trace!("========== CONCRETIZING ========");
         #[cfg(feature = "notifications")]
         Notification::new()
             .summary("FUSTA")
-            .body(&format!(
-                "Updating {}",
-                Path::new(self.filename).file_name()
-            ))
+            .body(&format!("Updating {}", &self.filename))
             .show()
             .unwrap();
         let mut index = 0;
@@ -674,14 +680,11 @@ impl FustaFS {
                 &tmp_filename, &self.filename
             )
         });
-        info!("========== DONE ========");
+        trace!("========== DONE ========");
         #[cfg(feature = "notifications")]
         Notification::new()
             .summary("FUSTA")
-            .body(&format!(
-                "{} has been updated",
-                Path::new(self.filename).file_name()
-            ))
+            .body(&format!("{} has been updated", &self.filename))
             .show()
             .unwrap();
         self.dirty = false;
@@ -1600,14 +1603,14 @@ impl Filesystem for FustaFS {
 
                 if pending.1.attrs.ino == ino {
                     trace!("RELEASE: {}", pending.0);
-                    info!("Dumping...");
+                    trace!("Dumping...");
                     // Dump the pending in its own file and parse it
                     let mut tmpfile =
                         tempfile::tempfile().expect("Unable to create a temporary file");
                     tmpfile
                         .write_all(&pending.1.data)
                         .expect("Unable to write to temporary file");
-                    info!("Parsing...");
+                    trace!("Parsing...");
                     tmpfile
                         .seek(SeekFrom::Start(0))
                         .expect("Unable to seek in temporary file");

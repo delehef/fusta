@@ -1,7 +1,6 @@
 #![allow(clippy::redundant_field_names)]
 #[macro_use]
 extern crate lazy_static;
-use std::ffi::OsStr;
 
 use anyhow::{bail, Context, Result};
 use clap::*;
@@ -159,20 +158,20 @@ fn main() -> Result<()> {
             .start()?;
     }
 
+    #[cfg(feature = "notifications")]
+    Notification::new()
+        .summary("FUSTA")
+        .body(&format!(
+            "{} is now available in {:#?}",
+            &fasta_file, &env.mountpoint
+        ))
+        .show()
+        .unwrap();
+
     match fuser::mount2(fs, &env.mountpoint, &fuse_options) {
         Ok(()) => {}
         _ => {
             error!("Unable to mount the FUSE filesystem");
-            #[cfg(feature = "notifications")]
-            Notification::new()
-                .summary("FUSTA")
-                .body(&format!(
-                    "Failed to mount {}",
-                    Path::new(fasta_file).file_name()
-                ))
-                .show()
-                .unwrap();
-
             std::process::exit(1);
         }
     }
@@ -182,7 +181,23 @@ fn main() -> Result<()> {
 }
 
 fn cleanup(env: &RunEnvironment) -> Result<()> {
+    #[cfg(feature = "notifications")]
+    Notification::new()
+        .summary("FUSTA")
+        .body("Successfully unmounted")
+        .show()
+        .unwrap();
+
     if env.created_mountpoint {
+        #[cfg(feature = "notifications")]
+        Notification::new()
+            .summary("FUSTA")
+            .body(&format!(
+                "You can now safely remove the {:?} directory",
+                env.mountpoint
+            ))
+            .show()
+            .unwrap();
         warn!(
             "You can now safely remove the {:?} directory",
             env.mountpoint

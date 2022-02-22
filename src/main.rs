@@ -43,10 +43,10 @@ fn main() -> Result<()> {
              .help("Specifies the directory to use as mountpoint; it will be created if it does not exist")
              .default_value("fusta")
              .takes_value(true))
-        .arg(Arg::with_name("daemon")
+        .arg(Arg::with_name("nodaemon")
              .short("D")
-             .long("daemon")
-             .help("Launch in the background; will automatically quit when unmounted"))
+             .long("no-daemon")
+             .help("Do not daemonize"))
 
     // Technical options
         .arg(Arg::with_name("max-cache")
@@ -75,7 +75,7 @@ fn main() -> Result<()> {
         TerminalMode::Mixed,
         ColorChoice::Auto,
     )];
-    if args.is_present("daemon") {
+    if !args.is_present("nodaemon") {
         let log_file_path = tempfile::Builder::new()
             .prefix("fusta-")
             .suffix(".log")
@@ -95,7 +95,6 @@ fn main() -> Result<()> {
     let mountpoint = value_t!(args, "mountpoint", String)?;
     let mut fuse_options: Vec<fuser::MountOption> = vec![
         fuser::MountOption::FSName("FUSTA".to_string()),
-        // fuser::MountOption::AllowRoot,
         // fuser::MountOption::AutoUnmount,
         fuser::MountOption::DefaultPermissions,
     ];
@@ -111,7 +110,43 @@ fn main() -> Result<()> {
     info!("Caching method:  {:#?}", settings.cache);
 
     let fs = FustaFS::new(settings, &fasta_file);
-    if args.is_present("daemon") {
+
+    let mut env = RunEnvironment {
+        mountpoint: std::path::PathBuf::from(mountpoint),
+        created_mountpoint: false,
+    };
+    let umount_msg = if cfg!(target_os = "freebsd") || cfg!(target_os = "macos") {
+        format!(
+            "Please use `umount {:?}` to exit.",
+            &env.mountpoint.canonicalize().unwrap()
+        )
+    } else {
+        format!(
+            "Please use `fusermount -u {0:?}` or `umount {0:?}` to exit.",
+            &env.mountpoint.canonicalize().unwrap()
+        )
+    };
+
+    if !env.mountpoint.exists() {
+        std::fs::create_dir(&env.mountpoint)?;
+        env.created_mountpoint = true;
+    }
+    if !env.mountpoint.is_dir() {
+        bail!("mount point `{:?}` is not a directory", env.mountpoint);
+    }
+    if std::fs::read_dir(&env.mountpoint)?.take(1).count() != 0 {
+        bail!("mount point {:?} is not empty.", env.mountpoint);
+    }
+
+    info!("{}", &umount_msg);
+    {
+        let umount_msg = umount_msg.clone();
+        ctrlc::set_handler(move || {
+            error!("{}", umount_msg);
+        })?;
+    }
+
+    if !args.is_present("nodaemon") {
         let pid_file = tempfile::Builder::new()
             .prefix("fusta-")
             .suffix(".pid")
@@ -124,39 +159,6 @@ fn main() -> Result<()> {
             .start()?;
     }
 
-    let mut env = RunEnvironment {
-        mountpoint: std::path::PathBuf::from(mountpoint),
-        created_mountpoint: false,
-    };
-
-    if !env.mountpoint.exists() {
-        std::fs::create_dir(&env.mountpoint)?;
-        env.created_mountpoint = true;
-    }
-    if !env.mountpoint.is_dir() {
-        bail!("mount point `{:?}` is not a directory", env.mountpoint);
-    }
-    if std::fs::read_dir(&env.mountpoint)?.take(1).count() != 0 {
-        bail!(
-            "mount point {:?} is not empty.",
-            env.mountpoint
-        );
-    }
-
-    let err_msg = if cfg!(target_os = "freebsd") || cfg!(target_os = "macos") {
-        format!(
-            "Please use `umount {:?}` to exit.",
-            &env.mountpoint.canonicalize().unwrap()
-        )
-    } else {
-        format!(
-            "Please use `fusermount -u {0:?}` or `umount {0:?}` to exit.",
-            &env.mountpoint.canonicalize().unwrap()
-        )
-    };
-    ctrlc::set_handler(move || {
-        error!("{}", err_msg);
-    })?;
     match fuser::mount2(fs, &env.mountpoint, &fuse_options) {
         Ok(()) => {}
         _ => {

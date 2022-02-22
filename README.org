@@ -2,7 +2,7 @@
  #+begin_src shell
    fusta GRCh38.fa -o hg38
    cat hg38/fasta/chr{X,Y}.fa > ~/sex_chrs.fa
-   cat hg38/get/chr17:18108706-18179802 > myo15a.fa
+   cat hg38/get/chr17:18108706-18179802 > MYO15A.fa
    rm hg38/seq/chr{3,5}.seq
    fusermount -u hg38
  #+end_src
@@ -125,28 +125,28 @@ All the following examples assume that a FASTA file has been mounted (/e.g./ =fu
  blastn mydb.db -query fusta/fasta/seq25.fa
  asgart fusta/fasta/chrX.fa fusta/asgart/chrY.fa --out result.json
  #+end_src
+** Compressed FASTA files
+FUSTA only works with uncompressed (multi)FASTA files. If you wish to use FUSTA on compressed (multi)FASTA files, we recommend the use of [[https://github.com/yhoogstrate/fastafs][FASTAFS]] as an intermediary to expose a compressed (multi)FASTA file to FUSTA without requiring to ully uncompress it.
 ** Runtime options
 #+begin_src
 USAGE:
-    fusta [OPTIONS] <FASTA> --mountpoint <mountpoint>
+    fusta [OPTIONS] <FASTA>
 
 OPTIONS:
-        --cache <cache>              Use either mmap, fseek(2) or just memory-backed cache to extract sequencse from
-                                     FASTA files [default: mmap]  [possible values: file, mmap,
+        --cache <cache>              Use either mmap, fseek(2) or memory-backed cache to extract sequences from FASTA
+                                     files. WARNING: memory caching use as much RAM as the size of the FASTA file should
+                                     be available. [default: mmap]  [possible values: file, mmap,
                                      memory]
-        --cache-all                  Cache all the sequences in RAM for faster access. WARNING as much RAM as the size
-                                     of the FASTA file should be available. Recommended when needing fast access above
-                                     all.
-    -D, --daemon                     Launch in the background; will automatically quit when unmounted
     -h, --help                       Prints help information
     -C, --max-cache <max-cache>      Set the maximum amount of memory to use to cache writes (MB) [default: 500]
     -o, --mountpoint <mountpoint>    Specifies the directory to use as mountpoint; it will be created if it does not
                                      exist [default: fusta]
+    -D, --no-daemon                  Do not daemonize
     -v                               Sets the level of verbosity
     -V, --version                    Prints version information
 
 ARGS:
-    <FASTA>    A (multi)FASTA file containing the sequences to mount
+    <FASTA>    A (multi)FASTA file containing the sequences to moun
 #+end_src
 
 *** =--cache=
@@ -164,7 +164,7 @@ Your FASTA file may contain too many fragments w.r.t. the number of mmap pages t
 * Contact
 If you have any question or if you encounter a problem, do not hesitate to [[https://github.com/delehef/fusta/issues][open an issue]].
 * Acknowledgments
-FUSTA is standing on the shoulders of, among others, [[https://github.com/cberner/fuser][fuser]], [[https://github.com/clap-rs/clap][clap]], [[https://github.com/danburkert/memmap-rs][memmap]] and [[https://github.com/knsd/daemonize][daemonize]].
+FUSTA is standing on the shoulders of, among others, [[https://github.com/cberner/fuser][fuser]], [[https://github.com/clap-rs/clap][clap]], [[https://github.com/RazrFalcon/memmap2-rs][memmap2]] and [[https://github.com/knsd/daemonize][daemonize]].
 * Changelog
 ** v1.5.3
 - Improve notification system

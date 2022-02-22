@@ -11,11 +11,13 @@ FUSTA is a FUSE-based virtual filesystem mirroring a (multi)FASTA file as a hier
 
 [[file:fusta.png]]
 
+The virtual files exposed by FUSTA behave like standard flat text files, and provide automatic compatibility with all existing programs. When handling large multiFASTA files, the intrinsic file caching capacities of the OS are leveraged to ensure the best experience to the user.
+
 ** Licensing
 FUSTA is distributed under the CeCILL-C (LGPLv3 compatible) license. Please see the LICENSE file for details.
 * Getting Started
 ** Installation
-*** FUSE
+*** Installing FUSE
 FUSE (Filesystem in USErspace) is a software interface bridging userspace code and kernel routines allowing the use of file-based interfaces without inclusion in the kernel or administrator rights.
 **** GNU/Linux
 On most GNU/Linux distributions,  FUSE is installed by default. Otherwise, you should install it from your package manager – note that a reboot might be necessary for the kernel module to be loaded.
@@ -34,7 +36,8 @@ Finally, you may wish to enable FUSE mounting without requiring administrator pe
 #+begin_src
 sudo sysctl vfs.usermount=1
 #+end_src
-*** From Source
+*** Installing FUSTA
+**** From Sources
 To build FUSTA, you need to install the [[https://www.rust-lang.org/en-US/install.html][Rust compiler]]. You can then build FUSTA by running =cargo=, the Rust build tool:
 #+begin_src
 cargo install --git https://github.com/delehef/fusta
@@ -44,7 +47,7 @@ cargo install --git https://github.com/delehef/fusta
 These commands run =fusta= in the background, mount the FASTA file =file.fa= in an automatically created =fusta= folder, exposing all the sequences contained in =file.fa= there. The call to =tree= will display the virtual hierarchy, then =fusermount= is called to cleanly unmount the file.
 
 #+begin_src
-fusta file.fa -D
+fusta file.fa
 tree -h fusta/
 fusermount -u fusta
 #+end_src

@@ -1,6 +1,7 @@
 #![allow(clippy::redundant_field_names)]
 #[cfg(feature = "notifications")]
 use crate::Notification;
+use anyhow::{bail, Result, Context};
 use fuser::*;
 use libc::*;
 use log::*;
@@ -465,8 +466,8 @@ pub struct FustaFS {
 }
 
 impl FustaFS {
-    pub fn new(settings: FustaSettings, filename: &str) -> FustaFS {
-        let metadata = fs::metadata(filename).unwrap();
+    pub fn new(settings: FustaSettings, filename: &str) -> Result<FustaFS> {
+        let metadata = fs::metadata(filename).context(format!("while opening `{}`", filename))?;
         let mut r = FustaFS {
             fragments: Vec::new(),
             name2fragment: HashMap::new(),
@@ -513,7 +514,7 @@ impl FustaFS {
         };
 
         r.read_fasta(filename);
-        r
+        Ok(r)
     }
 
     fn make_dir_attrs(ino: u64, perms: u16) -> FileAttr {

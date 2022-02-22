@@ -2,7 +2,7 @@
 #[macro_use]
 extern crate lazy_static;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result, Context};
 use clap::*;
 use daemonize::*;
 use log::*;
@@ -108,7 +108,7 @@ fn main() -> Result<()> {
     };
     info!("Caching method:  {:#?}", settings.cache);
 
-    let fs = FustaFS::new(settings, &fasta_file);
+    let fs = FustaFS::new(settings, &fasta_file)?;
 
     let mut env = RunEnvironment {
         mountpoint: std::path::PathBuf::from(mountpoint),

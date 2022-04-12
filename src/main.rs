@@ -114,6 +114,17 @@ fn main() -> Result<()> {
         mountpoint: std::path::PathBuf::from(mountpoint),
         created_mountpoint: false,
     };
+    if !env.mountpoint.exists() {
+        std::fs::create_dir(&env.mountpoint)?;
+        env.created_mountpoint = true;
+    }
+    if !env.mountpoint.is_dir() {
+        bail!("mount point `{:?}` is not a directory", env.mountpoint);
+    }
+    if std::fs::read_dir(&env.mountpoint)?.take(1).count() != 0 {
+        bail!("mount point {:?} is not empty.", env.mountpoint);
+    }
+
     let umount_msg = if cfg!(target_os = "freebsd") || cfg!(target_os = "macos") {
         format!(
             "Please use `umount {:?}` to exit.",
@@ -125,17 +136,6 @@ fn main() -> Result<()> {
             &env.mountpoint.canonicalize().unwrap()
         )
     };
-
-    if !env.mountpoint.exists() {
-        std::fs::create_dir(&env.mountpoint)?;
-        env.created_mountpoint = true;
-    }
-    if !env.mountpoint.is_dir() {
-        bail!("mount point `{:?}` is not a directory", env.mountpoint);
-    }
-    if std::fs::read_dir(&env.mountpoint)?.take(1).count() != 0 {
-        bail!("mount point {:?} is not empty.", env.mountpoint);
-    }
 
     info!("{}", &umount_msg);
     {

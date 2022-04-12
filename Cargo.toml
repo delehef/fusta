@@ -1,6 +1,6 @@
 [package]
 name = "fusta"
-version = "1.5.3"
+version = "1.5.4"
 authors = ["Franklin Delehelle <delehelle@ens.fr>"]
 edition = "2018"
 description = "FUSTA leverages the FUSE interface transparently manipulate multiFASTA files as independent files"

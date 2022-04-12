@@ -399,6 +399,7 @@ pub enum Cache {
 pub struct FustaSettings {
     pub cache: Cache,
     pub concretize_threshold: usize, // How much leeway do we have in memory consumption (in B)
+    pub csv_separator: String,
 }
 
 #[derive(Debug)]
@@ -780,15 +781,17 @@ impl FustaFS {
 
     fn make_info_csv_buffer(&mut self) {
         trace!("Making INFO_CSV BUFFER");
-        let header = "id,name,length";
+        let header = format!("id{}name{}length", self.settings.csv_separator, self.settings.csv_separator);
         let infos = self
             .fragments
             .iter()
             .map(|f| {
                 format!(
-                    "{},{},{}",
+                    "{}{}\"{}\"{}{}",
                     f.id.to_owned(),
+                    self.settings.csv_separator,
                     f.name.as_ref().unwrap_or(&"".to_string()).to_owned(),
+                    self.settings.csv_separator,
                     f.data_size()
                 )
             })

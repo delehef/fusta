@@ -59,6 +59,14 @@ fn main() -> Result<()> {
              .help("Use either mmap, fseek(2) or memory-backed cache to extract sequences from FASTA files. WARNING: memory caching use as much RAM as the size of the FASTA file should be available.")
              .possible_values(&["file", "mmap", "memory"])
              .default_value("mmap"))
+
+    // Other options
+        .arg(Arg::with_name("csv-separator")
+             .short("S")
+             .long("sep")
+             .help("Set the separator to use in CSV files")
+             .default_value(",")
+             .takes_value(true))
         .get_matches();
 
     let log_level = match args.occurrences_of("v") {
@@ -105,6 +113,7 @@ fn main() -> Result<()> {
             _ => unreachable!(),
         },
         concretize_threshold: value_t!(args, "max-cache", usize).unwrap() * 1024 * 1024,
+        csv_separator: value_t!(args, "csv-separator", String).unwrap()
     };
     info!("Caching method:  {:#?}", settings.cache);
 

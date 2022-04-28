@@ -1,7 +1,7 @@
 #![allow(clippy::redundant_field_names)]
 #[cfg(feature = "notifications")]
 use crate::Notification;
-use anyhow::{bail, Result, Context};
+use anyhow::{bail, Context, Result};
 use fuser::*;
 use libc::*;
 use log::*;
@@ -26,6 +26,7 @@ const TTL: Duration = Duration::from_secs(1);
 
 const FASTA_EXT: &str = ".fa";
 const SEQ_EXT: &str = ".seq";
+const DOTLESS_SEQ_EXT: &str = ".seq";
 
 // Virtual directories
 const ROOT_DIR: u64 = 1;
@@ -781,7 +782,10 @@ impl FustaFS {
 
     fn make_info_csv_buffer(&mut self) {
         trace!("Making INFO_CSV BUFFER");
-        let header = format!("id{}name{}length", self.settings.csv_separator, self.settings.csv_separator);
+        let header = format!(
+            "id{}name{}length",
+            self.settings.csv_separator, self.settings.csv_separator
+        );
         let infos = self
             .fragments
             .iter()
@@ -1516,7 +1520,7 @@ impl Filesystem for FustaFS {
                     // Remove the artificial extension if it exists
                     if newname_path
                         .extension()
-                        .map(|ext| ext == SEQ_EXT)
+                        .map(|ext| ext == DOTLESS_SEQ_EXT)
                         .unwrap_or(false)
                     {
                         debug!("Using {:?} for {}", newname_path.file_stem(), new_id);

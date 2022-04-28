@@ -15,33 +15,80 @@ The virtual files exposed by FUSTA behave like standard flat text files, and pro
 
 ** Licensing
 FUSTA is distributed under the CeCILL-C (LGPLv3 compatible) license. Please see the LICENSE file for details.
-* Getting Started
-** Installation
-*** Installing FUSE
-FUSE (Filesystem in USErspace) is a software interface bridging userspace code and kernel routines allowing the use of file-based interfaces without inclusion in the kernel or administrator rights.
-**** GNU/Linux
-On most GNU/Linux distributions,  FUSE is installed by default. Otherwise, you should install it from your package manager – note that a reboot might be necessary for the kernel module to be loaded.
-**** macOS
-You should download and install [[https://osxfuse.github.io/][FUSE for macOS]] in order to be able to use FUSTA.
-**** FreeBSD
-First, some dependencies should be installed:
+* Installation
+** Ubuntu
 #+begin_src
-pkg add pkgconf fusefs-libs
+sudo apt install cargo fuse3 libfuse3-dev pkg-config
+cargo install --git https://github.com/delehef/fusta
 #+end_src
-The FUSE kernel module has then to be loaded:
+
+You can now find =fusta= in =$HOME/cargo/bin/=; you should add this this path to your =$PATH= for easier use.
+** Fedora/Rocky Linux/Alma Linux
 #+begin_src
-sudo kldload fuse
+sudo yum install rust cargo fuse3 fuse3-devel
+cargo install --git https://github.com/delehef/fusta
 #+end_src
-Finally, you may wish to enable FUSE mounting without requiring administrator permissions:
+
+You can now find =fusta= in =$HOME/cargo/bin/=; you should add this this path to your =$PATH= for easier use.
+** Debian
+First, install the required dependencies:
+#+begin_src bash
+sudo apt install curl fuse3 libfuse3-dev
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh # Debian cargo is outdated
+#+end_src
+then rebot your shell to update the =PATH= environment variable.
+
+Finally, install FUSTA:
+#+begin_src bash
+cargo install --git https://github.com/delehef/fusta
+#+end_src
+You can now find =fusta= in =$HOME/cargo/bin/=; you should add this this path to your =$PATH= for easier use.
+** Scientific Linux
+First, install the required dependencies:
+#+begin_src bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+sudo yum install fuse3 fuse3-devel
+#+end_src
+then rebot your shell to update the =PATH= environment variable.
+
+Finally, install FUSTA:
 #+begin_src
-sudo sysctl vfs.usermount=1
+cargo install --git https://github.com/delehef/fusta
 #+end_src
-*** Installing FUSTA
-**** From Sources
+
+You can now find =fusta= in =$HOME/cargo/bin/=; you should add this this path to your =$PATH= for easier use.
+** macOS
+On macOS, you will need to install the build tools if you have not them ready yet: =xcode-select --install=
+
+You must then download and install [[https://osxfuse.github.io/][FUSE for macOS]] in order to be able to use FUSTA.
+
+Finalyy, to build FUSTA, you need to install the [[https://www.rust-lang.org/en-US/install.html][Rust compiler]]. You can then build FUSTA by running =cargo=, the Rust build tool:
+#+begin_src
+cargo install --git https://github.com/delehef/fusta
+#+end_src
+** FreeBSD
+First, install the required dependencies:
+#+begin_src bash
+sudo pkg install rust pkgconf fusefs-libs # Install build dependencies
+sudo sysctl vfs.usermount=1  # enable FUSE mounting without requiring administrator permissions
+sudo kldload fuse # load the FUSE kernel module
+#+end_src
+
+Then, install FUSTA /per se/:
+#+begin_src
+cargo install --git https://github.com/delehef/fusta
+#+end_src
+
+You can now find =fusta= in =$HOME/cargo/bin/=; you should add this this path to your =$PATH= for easier use.
+** From Sources
+You should install FUSE (as well as its potential =devel= package), from your package manager – note that a reboot might be necessary for the kernel module to be loaded.
+
 To build FUSTA, you need to install the [[https://www.rust-lang.org/en-US/install.html][Rust compiler]]. You can then build FUSTA by running =cargo=, the Rust build tool:
 #+begin_src
 cargo install --git https://github.com/delehef/fusta
 #+end_src
+
+You can now find =fusta= in =$HOME/cargo/bin/=; you should add this this path to your =$PATH= for easier use.
 * Usage
 ** Quick Start
 These commands run =fusta= in the background, mount the FASTA file =file.fa= in an automatically created =fusta= folder, exposing all the sequences contained in =file.fa= there. The call to =tree= will display the virtual hierarchy, then =fusermount= is called to cleanly unmount the file.
@@ -129,7 +176,7 @@ All the following examples assume that a FASTA file has been mounted (/e.g./ =fu
  asgart fusta/fasta/chrX.fa fusta/asgart/chrY.fa --out result.json
  #+end_src
 ** Compressed FASTA files
-FUSTA only works with uncompressed (multi)FASTA files. If you wish to use FUSTA on compressed (multi)FASTA files, we recommend the use of [[https://github.com/yhoogstrate/fastafs][FASTAFS]] as an intermediary to expose a compressed (multi)FASTA file to FUSTA without requiring to ully uncompress it.
+FUSTA only works with uncompressed (multi)FASTA files. If you wish to use FUSTA on compressed (multi)FASTA files, we recommend to use [[https://github.com/yhoogstrate/fastafs][FASTAFS]] as an intermediary to expose a compressed (multi)FASTA file to FUSTA without requiring to ully uncompress it.
 ** Runtime options
 #+begin_src
 USAGE:

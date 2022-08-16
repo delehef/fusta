@@ -1,7 +1,7 @@
 #![allow(clippy::redundant_field_names)]
 #[cfg(feature = "notifications")]
 use crate::Notification;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use fuser::*;
 use libc::*;
 use log::*;

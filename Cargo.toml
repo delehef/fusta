@@ -10,6 +10,11 @@ repository = "https://github.com/delehef/fusta"
 readme = "README.org"
 keywords = ["bioinformatics", "fasta", "fuse"]
 categories = ["science", "command-line-utilities", "filesystem"]
+exclude = [
+    "fusta.png",
+    "fusta.svg",
+    "shell.nix",
+]
 
 [dependencies]
 anyhow = "1"

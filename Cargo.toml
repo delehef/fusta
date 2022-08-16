@@ -1,9 +1,15 @@
 [package]
+edition = "2018"
 name = "fusta"
 version = "1.5.5"
+license = "CECILL-C"
 authors = ["Franklin Delehelle <delehelle@ens.fr>"]
-edition = "2018"
-description = "FUSTA leverages the FUSE interface transparently manipulate multiFASTA files as independent files"
+description = "FUSTA leverages the FUSE interface to transparently manipulate multiFASTA files as independent files"
+homepage = "https://github.com/delehef/fusta"
+repository = "https://github.com/delehef/fusta"
+readme = "README.org"
+keywords = ["bioinformatics", "fasta", "fuse"]
+categories = ["science", "command-line-utilities", "filesystem"]
 
 [dependencies]
 anyhow = "1"

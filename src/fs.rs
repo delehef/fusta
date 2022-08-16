@@ -794,7 +794,7 @@ impl FustaFS {
                     "{}{}\"{}\"{}{}",
                     f.id.to_owned(),
                     self.settings.csv_separator,
-                    f.name.as_ref().unwrap_or(&"".to_string()).to_owned(),
+                    f.name.as_ref().unwrap_or(&"".to_string()),
                     self.settings.csv_separator,
                     f.data_size()
                 )
@@ -847,12 +847,7 @@ impl FustaFS {
             .iter()
             .enumerate()
             .flat_map(|(i, f)| {
-                vec![
-                    // TODO array::IntoIter::new([(x, y), (z, w)]) for Rust v1.57
-                    (f.fasta_file.ino.clone(), i),
-                    (f.seq_file.ino.clone(), i),
-                ]
-                .into_iter()
+                std::iter::IntoIterator::into_iter([(f.fasta_file.ino, i), (f.seq_file.ino, i)])
             })
             .collect::<HashMap<_, _>>();
     }
@@ -936,13 +931,13 @@ impl Filesystem for FustaFS {
                     reply.entry(&TTL, &self.dir_attrs[&SUBFRAGMENTS_DIR], 0);
                 }
                 INFO_FILE_NAME => {
-                    reply.entry(&TTL, &self.get_file(INFO_FILE).unwrap().attrs(), 0);
+                    reply.entry(&TTL, self.get_file(INFO_FILE).unwrap().attrs(), 0);
                 }
                 INFO_CSV_FILE_NAME => {
-                    reply.entry(&TTL, &self.get_file(INFO_CSV_FILE).unwrap().attrs(), 0);
+                    reply.entry(&TTL, self.get_file(INFO_CSV_FILE).unwrap().attrs(), 0);
                 }
                 LABELS_FILE_NAME => {
-                    reply.entry(&TTL, &self.get_file(LABELS_FILE).unwrap().attrs(), 0);
+                    reply.entry(&TTL, self.get_file(LABELS_FILE).unwrap().attrs(), 0);
                 }
                 _ => {
                     reply.error(ENOENT);
@@ -957,7 +952,7 @@ impl Filesystem for FustaFS {
                 .and_then(|f| f.file_from_filename(name));
 
                 if let Some(file) = file {
-                    reply.entry(&TTL, &file.attrs(), 0);
+                    reply.entry(&TTL, file.attrs(), 0);
                 } else {
                     reply.error(ENOENT);
                 }
@@ -984,11 +979,11 @@ impl Filesystem for FustaFS {
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         match ino {
             ROOT_DIR | SEQ_DIR | APPEND_DIR | FASTA_DIR | SUBFRAGMENTS_DIR => {
-                reply.attr(&TTL, &self.dir_attrs.get(&ino).unwrap())
+                reply.attr(&TTL, self.dir_attrs.get(&ino).unwrap())
             }
-            INFO_FILE => reply.attr(&TTL, &self.get_file(INFO_FILE).unwrap().attrs()),
-            INFO_CSV_FILE => reply.attr(&TTL, &self.get_file(INFO_CSV_FILE).unwrap().attrs()),
-            LABELS_FILE => reply.attr(&TTL, &self.get_file(LABELS_FILE).unwrap().attrs()),
+            INFO_FILE => reply.attr(&TTL, self.get_file(INFO_FILE).unwrap().attrs()),
+            INFO_CSV_FILE => reply.attr(&TTL, self.get_file(INFO_CSV_FILE).unwrap().attrs()),
+            LABELS_FILE => reply.attr(&TTL, self.get_file(LABELS_FILE).unwrap().attrs()),
             ino if self.subfragment_from_ino(ino).is_some() => {
                 reply.attr(&TTL, &self.subfragment_from_ino(ino).unwrap().attrs);
             }
@@ -997,7 +992,7 @@ impl Filesystem for FustaFS {
                     .fragment_from_ino(ino)
                     .and_then(|f| f.file_from_ino(ino))
                 {
-                    reply.attr(&TTL, &file.attrs())
+                    reply.attr(&TTL, file.attrs())
                 } else {
                     warn!("GETATTR: ino `{}` does not exist", ino);
                     reply.error(ENOENT)
@@ -1130,7 +1125,7 @@ impl Filesystem for FustaFS {
                     LABELS_FILE      => (FileType::RegularFile, LABELS_FILE_NAME),
                 };
                 for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
-                    let _ = reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
+                    let _ = reply.add(*ino, o as i64 + 1, entry.0, &entry.1);
                 }
                 reply.ok();
             }
@@ -1163,7 +1158,7 @@ impl Filesystem for FustaFS {
                     ROOT_DIR   => (FileType::Directory, "..".to_owned()),
                 };
                 for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
-                    let _ = reply.add(*ino, o as i64 + 1, entry.0, entry.1.to_owned());
+                    let _ = reply.add(*ino, o as i64 + 1, entry.0, &entry.1);
                 }
                 reply.ok();
             }
@@ -1463,8 +1458,7 @@ impl Filesystem for FustaFS {
                         }
                         reply.attr(
                             &TTL,
-                            &self
-                                .fragment_from_ino(ino)
+                            self.fragment_from_ino(ino)
                                 .and_then(|f| f.file_from_ino(ino))
                                 .unwrap()
                                 .attrs(),

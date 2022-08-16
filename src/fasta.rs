@@ -37,12 +37,12 @@ impl<T: Read> Iterator for FastaReader<T> {
 
     fn next(&mut self) -> Option<Fragment> {
         let mut current_seq: Vec<u8> = Vec::new();
-        while let Some(l) = self.buffer_lines.next() {
+        for l in self.buffer_lines.by_ref() {
             let line = l.unwrap();
             let len = line.len() + 1;
             self.current_offset += len;
 
-            if line.starts_with('>') {
+            if let Some(name) = line.strip_prefix('>') {
                 if let Some(ref current_header) = self.current_header {
                     let split = current_header.split(' ').collect::<Vec<_>>();
                     let r = Fragment {
@@ -61,20 +61,18 @@ impl<T: Read> Iterator for FastaReader<T> {
                             None
                         },
                     };
-                    self.current_header = Some(String::from(&line[1..]));
+                    self.current_header = Some(String::from(name));
 
                     self.current_start = self.current_offset;
 
                     return Some(r);
                 } else {
-                    self.current_header = Some(String::from(&line[1..]));
+                    self.current_header = Some(String::from(name));
                     self.current_start = self.current_offset;
                 }
                 continue;
-            } else {
-                if self.with_seq {
-                    current_seq.extend(line.trim_end().as_bytes());
-                }
+            } else if self.with_seq {
+                current_seq.extend(line.trim_end().as_bytes());
             }
         }
 

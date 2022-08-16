@@ -30,9 +30,9 @@ fn main() -> Result<()> {
              .help("A (multi)FASTA file containing the sequences to mount")
              .required(true)
              .index(1))
-        .arg(Arg::with_name("v")
+        .arg(Arg::with_name("verbose")
              .short('v')
-             .multiple(true)
+             .action(ArgAction::Count)
              .help("Sets the level of verbosity"))
 
         .arg(Arg::with_name("mountpoint")
@@ -67,7 +67,7 @@ fn main() -> Result<()> {
              .takes_value(true))
         .get_matches();
 
-    let log_level = match args.occurrences_of("v") {
+    let log_level = match args.occurrences_of("verbose") {
         0 => LevelFilter::Info,
         1 => LevelFilter::Debug,
         2 => LevelFilter::Trace,
@@ -152,7 +152,6 @@ fn main() -> Result<()> {
 
     info!("{}", &umount_msg);
     {
-        let umount_msg = umount_msg.clone();
         ctrlc::set_handler(move || {
             error!("{}", umount_msg);
         })?;

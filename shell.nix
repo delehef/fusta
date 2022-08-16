@@ -2,6 +2,6 @@
 
 pkgs.mkShell {
   buildInputs = [
-    pkgs.fuse pkgs.cargo pkgs.pkg-config pkgs.rustfmt pkgs.libiconv
+    pkgs.fuse pkgs.cargo pkgs.pkg-config pkgs.rustfmt pkgs.libiconv pkgs.rustc
   ];
 }

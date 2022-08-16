@@ -750,9 +750,9 @@ impl FustaFS {
         use num_format::*;
 
         let mut table = AsciiTable::default();
-        table.columns.insert(0, Column::with_header("ID"));
-        table.columns.insert(1, Column::with_header("Infos"));
-        table.columns.insert(2, Column::with_header("Length (bp)"));
+        table.column(0).set_header("ID");
+        table.column(1).set_header("Infos");
+        table.column(2).set_header("Length (bp)");
 
         trace!("Making INFO BUFFER");
         let header = format!("{} - {} sequences", &self.filename, self.fragments.len());

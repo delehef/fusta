@@ -23,7 +23,6 @@ fn main() -> Result<()> {
         App::new("fusta")
         .setting(AppSettings::ColoredHelp)
         .setting(AppSettings::ColorAuto)
-        .setting(AppSettings::VersionlessSubcommands)
         .setting(AppSettings::UnifiedHelpMessage)
         .version(crate_version!())
         .author(crate_authors!())
@@ -32,23 +31,23 @@ fn main() -> Result<()> {
              .required(true)
              .index(1))
         .arg(Arg::with_name("v")
-             .short("v")
+             .short('v')
              .multiple(true)
              .help("Sets the level of verbosity"))
 
         .arg(Arg::with_name("mountpoint")
-             .short("o")
+             .short('o')
              .long("mountpoint")
              .help("Specifies the directory to use as mountpoint; it will be created if it does not exist")
              .takes_value(true))
         .arg(Arg::with_name("nodaemon")
-             .short("D")
+             .short('D')
              .long("no-daemon")
              .help("Do not daemonize"))
 
     // Technical options
         .arg(Arg::with_name("max-cache")
-             .short("C")
+             .short('C')
              .long("max-cache")
              .help("Set the maximum amount of memory to use to cache writes (MB)")
              .default_value("500")
@@ -61,7 +60,7 @@ fn main() -> Result<()> {
 
     // Other options
         .arg(Arg::with_name("csv-separator")
-             .short("S")
+             .short('S')
              .long("sep")
              .help("Set the separator to use in CSV files")
              .default_value(",")
@@ -74,12 +73,12 @@ fn main() -> Result<()> {
         2 => LevelFilter::Trace,
         _ => LevelFilter::Trace,
     };
-    let log_config = ConfigBuilder::new().set_time_format_str("").build();
+    let log_config = ConfigBuilder::new().build();
     let mut loggers: Vec<Box<dyn SharedLogger>> = vec![TermLogger::new(
         log_level,
         log_config.clone(),
         TerminalMode::Mixed,
-        ColorChoice::Auto,
+        simplelog::ColorChoice::Auto,
     )];
     if !args.is_present("nodaemon") {
         let log_file_path = tempfile::Builder::new()

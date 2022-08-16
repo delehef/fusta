@@ -216,6 +216,8 @@ If you have any question or if you encounter a problem, do not hesitate to [[htt
 * Acknowledgments
 FUSTA is standing on the shoulders of, among others, [[https://github.com/cberner/fuser][fuser]], [[https://github.com/clap-rs/clap][clap]], [[https://github.com/RazrFalcon/memmap2-rs][memmap2]] and [[https://github.com/knsd/daemonize][daemonize]].
 * Changelog
+** v1.5.7
+- Update dependencies
 ** v1.5.6
 - The default mount point is now =fusta-{filename}=
 ** v1.5.4

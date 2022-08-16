@@ -18,11 +18,11 @@ exclude = [
 
 [dependencies]
 anyhow = "1"
-ascii_table = "3"
-clap = "2.0"
+ascii_table = "4"
+clap = { version = "3.2", features = ["cargo"] }
 ctrlc = { version = "3.0", features = ["termination"] }
 daemonize = "0.4"
-fuser = "0.9"
+fuser = "0.11"
 lazy_static = "1"
 libc = "0.2"
 log = "0.4"
@@ -31,8 +31,8 @@ memmap2 = "0.5"
 notify-rust = { version = "4", optional = true }
 num-format = "0.4"
 regex = "1"
-simplelog = "0.10"
-smartstring = "0.2"
+simplelog = "0.12"
+smartstring = "1"
 tempfile = "3"
 
 [features]

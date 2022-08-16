@@ -2,7 +2,7 @@
 #[macro_use]
 extern crate lazy_static;
 
-use anyhow::{bail, Result, Context};
+use anyhow::{bail, Context, Result};
 use clap::*;
 use daemonize::*;
 use log::*;
@@ -40,7 +40,6 @@ fn main() -> Result<()> {
              .short("o")
              .long("mountpoint")
              .help("Specifies the directory to use as mountpoint; it will be created if it does not exist")
-             .default_value("fusta")
              .takes_value(true))
         .arg(Arg::with_name("nodaemon")
              .short("D")
@@ -99,8 +98,14 @@ fn main() -> Result<()> {
     CombinedLogger::init(loggers).context("Unable to init logger")?;
 
     let fasta_file = value_t!(args, "FASTA", String)?;
-    let mountpoint = value_t!(args, "mountpoint", String)?;
-    let mut fuse_options: Vec<fuser::MountOption> = vec![
+    let mountpoint = value_t!(args, "mountpoint", String).unwrap_or(format!(
+        "fusta-{}",
+        std::path::Path::new(&fasta_file)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .context(format!("{:?} is not a valid path", &fasta_file))?
+    ));
+    let fuse_options: Vec<fuser::MountOption> = vec![
         fuser::MountOption::FSName("FUSTA".to_string()),
         // fuser::MountOption::AutoUnmount,
         fuser::MountOption::DefaultPermissions,
@@ -113,7 +118,7 @@ fn main() -> Result<()> {
             _ => unreachable!(),
         },
         concretize_threshold: value_t!(args, "max-cache", usize).unwrap() * 1024 * 1024,
-        csv_separator: value_t!(args, "csv-separator", String).unwrap()
+        csv_separator: value_t!(args, "csv-separator", String).unwrap(),
     };
     info!("Caching method:  {:#?}", settings.cache);
 

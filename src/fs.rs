@@ -53,7 +53,7 @@ enum FileClass {
 }
 impl FileClass {
     fn readonly(&self) -> bool {
-        matches!(self, FileClass::Seq)
+        !matches!(self, FileClass::Seq)
     }
 }
 

@@ -51,11 +51,6 @@ enum FileClass {
     Seq,
     Text,
 }
-impl FileClass {
-    fn readonly(&self) -> bool {
-        !matches!(self, FileClass::Seq)
-    }
-}
 
 trait VirtualFile {
     fn name(&self) -> &str;
@@ -841,7 +836,11 @@ impl FustaFS {
     }
 
     fn is_fasta_file(&self, ino: u64) -> bool {
-        self.fragments.iter().any(|f| f.fasta_file.ino == ino)
+        self.ino2fragment
+            .get(&ino)
+            .and_then(|i| self.fragments.get(*i))
+            .map(|f| f.fasta_file.ino == ino)
+            .unwrap_or(false)
     }
 
     fn is_seq_file(&self, ino: u64) -> bool {
@@ -1370,13 +1369,7 @@ impl Filesystem for FustaFS {
             INFO_FILE | INFO_CSV_FILE | LABELS_FILE => reply.error(EACCES),
             _ => {
                 if self.fragment_from_ino(ino).is_some() {
-                    if self
-                        .fragment_from_ino(ino)
-                        .and_then(|f| f.file_from_ino(ino))
-                        .unwrap()
-                        .class()
-                        .readonly()
-                    {
+                    if !self.is_writeable(ino) {
                         reply.error(EACCES);
                     } else {
                         if let Some(file) = self

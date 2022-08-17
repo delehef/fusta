@@ -12,13 +12,13 @@ pub mod fs;
 use fs::*;
 
 #[cfg(not(feature = "notifications"))]
-fn notify(_: &str) {}
+fn notify<S: AsRef<str>>(_: S) {}
 #[cfg(feature = "notifications")]
-fn notify(msg: &str) {
+fn notify<S: AsRef<str>>(msg: S) {
     use notify_rust::Notification;
     Notification::new()
         .summary("FUSTA")
-        .body(msg)
+        .body(msg.as_ref())
         .show()
         .unwrap();
 }
@@ -180,7 +180,7 @@ fn main() -> Result<()> {
             .start()?;
     }
 
-    notify(&format!(
+    notify(format!(
         "{} is now available in {:#?}",
         &fasta_file, &env.mountpoint
     ));
@@ -201,7 +201,7 @@ fn cleanup(env: &RunEnvironment) -> Result<()> {
     notify("Successfully unmounted");
 
     if env.created_mountpoint {
-        notify(&format!(
+        notify(format!(
             "You can now safely remove the {:?} directory",
             env.mountpoint
         ));

@@ -645,7 +645,7 @@ impl FustaFS {
         }
 
         trace!("========== CONCRETIZING ========");
-        notify(&format!("Updating {}", &self.filename));
+        notify(format!("Updating {}", &self.filename));
         let mut index = 0;
         let mut last_start;
         trace!("Writing fragments");
@@ -678,7 +678,7 @@ impl FustaFS {
             )
         });
         trace!("========== DONE ========");
-        notify(&format!("{} has been updated", &self.filename));
+        notify(format!("{} has been updated", &self.filename));
         self.dirty = false;
     }
 
@@ -1409,8 +1409,7 @@ impl Filesystem for FustaFS {
                                 file.mut_attrs().perm = mode as u16
                             }
                         }
-                        if let Some(size) = size {
-                            let size = size as usize;
+                        if let Some(size) = size.map(|s| s as usize) {
                             if size == 0 {
                                 // Clear the file, called by the truncate syscall
                                 if let Some(fragment) = self.mut_fragment_from_ino(ino) {

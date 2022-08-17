@@ -6,12 +6,22 @@ use anyhow::{bail, Context, Result};
 use clap::*;
 use daemonize::*;
 use log::*;
-#[cfg(feature = "notifications")]
-use notify_rust::Notification;
 use simplelog::*;
 
 pub mod fs;
 use fs::*;
+
+#[cfg(not(feature = "notifications"))]
+fn notify(_: &str) {}
+#[cfg(feature = "notifications")]
+fn notify(msg: &str) {
+    use notify_rust::Notification;
+    Notification::new()
+        .summary("FUSTA")
+        .body(msg)
+        .show()
+        .unwrap();
+}
 
 #[derive(Debug, Clone)]
 struct RunEnvironment {
@@ -170,15 +180,10 @@ fn main() -> Result<()> {
             .start()?;
     }
 
-    #[cfg(feature = "notifications")]
-    Notification::new()
-        .summary("FUSTA")
-        .body(&format!(
-            "{} is now available in {:#?}",
-            &fasta_file, &env.mountpoint
-        ))
-        .show()
-        .unwrap();
+    notify(&format!(
+        "{} is now available in {:#?}",
+        &fasta_file, &env.mountpoint
+    ));
 
     match fuser::mount2(fs, &env.mountpoint, &fuse_options) {
         Ok(()) => {}
@@ -193,25 +198,15 @@ fn main() -> Result<()> {
 }
 
 fn cleanup(env: &RunEnvironment) -> Result<()> {
-    #[cfg(feature = "notifications")]
-    Notification::new()
-        .summary("FUSTA")
-        .body("Successfully unmounted")
-        .show()
-        .unwrap();
+    notify("Successfully unmounted");
 
     if env.created_mountpoint {
-        #[cfg(feature = "notifications")]
-        Notification::new()
-            .summary("FUSTA")
-            .body(&format!(
-                "You can now safely remove the {:?} directory",
-                env.mountpoint
-            ))
-            .show()
-            .unwrap();
-        warn!(
+        notify(&format!(
             "You can now safely remove the {:?} directory",
+            env.mountpoint
+        ));
+        warn!(
+            "You can now safely delete the {:?} directory",
             env.mountpoint
         );
     }

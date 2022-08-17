@@ -1,6 +1,5 @@
 #![allow(clippy::redundant_field_names)]
-#[cfg(feature = "notifications")]
-use crate::Notification;
+use crate::notify;
 use anyhow::{Context, Result};
 use fuser::*;
 use libc::*;
@@ -646,12 +645,7 @@ impl FustaFS {
         }
 
         trace!("========== CONCRETIZING ========");
-        #[cfg(feature = "notifications")]
-        Notification::new()
-            .summary("FUSTA")
-            .body(&format!("Updating {}", &self.filename))
-            .show()
-            .unwrap();
+        notify(&format!("Updating {}", &self.filename));
         let mut index = 0;
         let mut last_start;
         trace!("Writing fragments");
@@ -684,12 +678,7 @@ impl FustaFS {
             )
         });
         trace!("========== DONE ========");
-        #[cfg(feature = "notifications")]
-        Notification::new()
-            .summary("FUSTA")
-            .body(&format!("{} has been updated", &self.filename))
-            .show()
-            .unwrap();
+        notify(&format!("{} has been updated", &self.filename));
         self.dirty = false;
     }
 

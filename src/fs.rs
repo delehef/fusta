@@ -21,6 +21,10 @@ use std::io::SeekFrom;
 
 use fusta::fasta::*;
 
+#[cfg(unix)]
+const FORBIDDEN_CHARS: [char; 2] = ['\\', '\0'];
+#[cfg(windows)]
+const FORBIDDEN_CHARS: [char; 8] = ['\\', '/', ':', '*', '?', '|', '<', '>'];
 const TTL: Duration = Duration::from_secs(1);
 
 const FASTA_EXT: &str = ".fa";
@@ -581,29 +585,33 @@ impl FustaFS {
         self.fragments = fragments
             .into_iter()
             .map(|fragment| {
-                Fragment::new(
-                    &fragment.id,
-                    &fragment.name,
-                    match self.settings.cache {
-                        Cache::Mmap => Backing::MMap(unsafe {
-                            memmap2::MmapOptions::new()
-                                .offset(fragment.pos.0 as u64)
-                                .len(fragment.len)
-                                .map(&file)
-                                .unwrap()
-                        }),
-                        Cache::File => {
-                            Backing::File(filename.into(), fragment.pos.0, fragment.pos.1)
-                        }
-                        Cache::RAM => Backing::PureBuffer(fragment.seq.unwrap()),
-                    },
-                    self.new_ino(),
-                    self.new_ino(),
-                    self.metadata.accessed().unwrap(),
-                    self.metadata.modified().unwrap(),
-                )
+                if fragment.id.chars().any(|c| FORBIDDEN_CHARS.contains(&c)) {
+                    Err(anyhow::anyhow!(format!("Fragment ID `{}` contains a forbidden character", fragment.id)))
+                } else {
+                    Ok(Fragment::new(
+                        &fragment.id,
+                        &fragment.name,
+                        match self.settings.cache {
+                            Cache::Mmap => Backing::MMap(unsafe {
+                                memmap2::MmapOptions::new()
+                                    .offset(fragment.pos.0 as u64)
+                                    .len(fragment.len)
+                                    .map(&file)
+                                    .unwrap()
+                            }),
+                            Cache::File => {
+                                Backing::File(filename.into(), fragment.pos.0, fragment.pos.1)
+                            }
+                            Cache::RAM => Backing::PureBuffer(fragment.seq.unwrap()),
+                        },
+                        self.new_ino(),
+                        self.new_ino(),
+                        self.metadata.accessed().unwrap(),
+                        self.metadata.modified().unwrap(),
+                    ))
+                }
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
         self.refresh_metadata(true);
         info!("Done.");
         Ok(())

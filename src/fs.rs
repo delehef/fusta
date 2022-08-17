@@ -514,7 +514,7 @@ impl FustaFS {
             dirty: false,
         };
 
-        r.read_fasta(filename);
+        r.read_fasta(filename).context(format!("while parsing {}", filename))?;
         Ok(r)
     }
 
@@ -568,21 +568,20 @@ impl FustaFS {
         self.files.iter_mut().find(|f| f.ino() == ino)
     }
 
-    fn read_fasta(&mut self, filename: &str) {
+    fn read_fasta(&mut self, filename: &str) -> Result<()> {
         info!("Reading {}...", filename);
         let fasta_file =
-            fs::File::open(filename).unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
+            fs::File::open(filename).context(format!("failed to open file `{}`", filename))?;
         let fragments =
             FastaReader::new(fasta_file, self.settings.cache == Cache::RAM).collect::<Vec<_>>();
         let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
         keys.sort();
         keys.dedup();
         if keys.len() != fragments.len() {
-            panic!("Duplicated keys")
+            anyhow::bail!("`{}` contains duplicated keys", filename)
         }
 
-        let file =
-            fs::File::open(filename).unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
+        let file = fs::File::open(filename).context(format!("Failed to open `{}`", filename))?;
         self.filename = filename.to_owned();
 
         self.fragments = fragments
@@ -612,7 +611,8 @@ impl FustaFS {
             })
             .collect::<Vec<_>>();
         self.refresh_metadata(true);
-        info!("Done.")
+        info!("Done.");
+        Ok(())
     }
 
     fn concretize(&mut self, force: bool) {

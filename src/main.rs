@@ -67,7 +67,7 @@ fn main() -> Result<()> {
              .takes_value(true))
         .get_matches();
 
-    let log_level = match args.occurrences_of("verbose") {
+    let log_level = match args.get_one::<u8>("verbose").copied().unwrap_or_default() {
         0 => LevelFilter::Info,
         1 => LevelFilter::Debug,
         2 => LevelFilter::Trace,

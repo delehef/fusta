@@ -1284,12 +1284,23 @@ impl Filesystem for FustaFS {
             error!("{} is not writeable", ino);
             reply.error(EACCES);
         } else {
+            // Check that we only write valid FASTA content
+            if !data
+                .iter()
+                .all(|b| b.is_ascii_alphanumeric() || *b == b'\n')
+            {
+                warn!("Invalid FASTA sequence found when writing");
+                notify(format!("Invalid FASTA sequence found when writing"));
+                reply.error(EIO);
+                return;
+            }
+
             // We write to an existing fragment
             if self.fragment_from_ino(ino).is_some() {
                 let mut fragment = self
                     .mut_fragment_from_ino(ino)
                     .expect("Something went very wrong");
-                // As soon as there's a write, we have to switch to a buffer-backed storage
+                // As soon as there's a write, we have to switch this fragment to a buffer-backed storage
                 if !matches!(fragment.data, Backing::Buffer(_)) {
                     fragment.data = Backing::Buffer(fragment.data().to_vec());
                 }

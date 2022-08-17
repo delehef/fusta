@@ -1302,16 +1302,9 @@ impl Filesystem for FustaFS {
                     .mut_fragment_from_ino(ino)
                     .expect("Something went very wrong");
                 // As soon as there's a write, we have to switch to a buffer-backed storage
-                match fragment.data {
-                    Backing::Buffer(_) => {}
-                    _ => {
-                        fragment.data = Backing::Buffer(fragment.data().to_vec());
-                    }
+                if !matches!(fragment.data, Backing::Buffer(_)) {
+                    fragment.data = Backing::Buffer(fragment.data().to_vec());
                 }
-                // TODO Update when 1.44 is available
-                // if !matches!(fragment.data, Backing::Buffer(_)) {
-                //     fragment.data = Backing::Buffer(fragment.data().to_vec());
-                // }
 
                 // Ensure that the backing buffer is big enough
                 let max_size = offset as usize + data.len();

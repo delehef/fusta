@@ -38,6 +38,9 @@ const SEQ_DIR: u64 = 3;
 const APPEND_DIR: u64 = 4;
 const SUBFRAGMENTS_DIR: u64 = 5;
 
+// First free ino
+const FIRST_INO: u64 = 20;
+
 // Pure virtual files
 const INFO_FILE: u64 = 10;
 const INFO_FILE_NAME: &str = "infos.txt";
@@ -46,8 +49,9 @@ const LABELS_FILE_NAME: &str = "labels.txt";
 const INFO_CSV_FILE: u64 = 12;
 const INFO_CSV_FILE_NAME: &str = "infos.csv";
 
-// First free ino
-const FIRST_INO: u64 = 20;
+fn is_fasta_char(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || [b'\n', b'-', b'_', b'.', b'+', b'='].contains(&c)
+}
 
 #[derive(Debug, PartialEq, Clone)]
 enum FileClass {
@@ -586,7 +590,10 @@ impl FustaFS {
             .into_iter()
             .map(|fragment| {
                 if fragment.id.chars().any(|c| FORBIDDEN_CHARS.contains(&c)) {
-                    Err(anyhow::anyhow!(format!("Fragment ID `{}` contains a forbidden character", fragment.id)))
+                    Err(anyhow::anyhow!(format!(
+                        "Fragment ID `{}` contains a forbidden character",
+                        fragment.id
+                    )))
                 } else {
                     Ok(Fragment::new(
                         &fragment.id,
@@ -1293,10 +1300,7 @@ impl Filesystem for FustaFS {
             reply.error(EACCES);
         } else {
             // Check that we only write valid FASTA content
-            if !data
-                .iter()
-                .all(|b| b.is_ascii_alphanumeric() || *b == b'\n')
-            {
+            if !data.iter().all(|&c| is_fasta_char(c)) {
                 warn!("Invalid FASTA sequence found when writing");
                 notify(format!("Invalid FASTA sequence found when writing"));
                 reply.error(EIO);

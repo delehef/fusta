@@ -37,16 +37,13 @@ const SUBFRAGMENTS_DIR: u64 = 5;
 // Pure virtual files
 const INFO_FILE: u64 = 10;
 const INFO_FILE_NAME: &str = "infos.txt";
-const INFO_CSV_FILE: u64 = 12;
-const INFO_CSV_FILE_NAME: &str = "infos.csv";
 const LABELS_FILE: u64 = 11;
 const LABELS_FILE_NAME: &str = "labels.txt";
+const INFO_CSV_FILE: u64 = 12;
+const INFO_CSV_FILE_NAME: &str = "infos.csv";
 
 // First free ino
 const FIRST_INO: u64 = 20;
-
-// Set to true to allow for sequence overwriting
-const NO_OVERWRITE: bool = false;
 
 #[derive(Debug, PartialEq, Clone)]
 enum FileClass {
@@ -400,6 +397,7 @@ pub struct FustaSettings {
     pub cache: Cache,
     pub concretize_threshold: usize, // How much leeway do we have in memory consumption (in B)
     pub csv_separator: String,
+    pub no_overwrite: bool,
 }
 
 #[derive(Debug)]
@@ -514,7 +512,8 @@ impl FustaFS {
             dirty: false,
         };
 
-        r.read_fasta(filename).context(format!("while parsing {}", filename))?;
+        r.read_fasta(filename)
+            .context(format!("while parsing {}", filename))?;
         Ok(r)
     }
 
@@ -1229,7 +1228,8 @@ impl Filesystem for FustaFS {
                     .to_str()
                     .unwrap();
                 // From man: if pathname already exists [...], this call fails with an EEXIST error.
-                if self.fragments.iter().any(|f| f.id == basename) && NO_OVERWRITE {
+                if self.fragments.iter().any(|f| f.id == basename) && self.settings.no_overwrite {
+                    notify(format!("Cannot create `{:?}`, already exists", name));
                     error!("Cannot create `{:?}`, already exists", name);
                     reply.error(EEXIST);
                     return;
@@ -1508,7 +1508,7 @@ impl Filesystem for FustaFS {
                     }
                     // Shortcut if we cannot overwrite existing fragments
                     let replaced_fragment = self.fragment_from_id(&new_id);
-                    if replaced_fragment.is_some() && NO_OVERWRITE {
+                    if replaced_fragment.is_some() && self.settings.no_overwrite {
                         error!("Cannot rename {:?} to {}: already existing.", name, new_id);
                         reply.error(EACCES);
                     } else {
@@ -1607,13 +1607,13 @@ impl Filesystem for FustaFS {
                         .collect::<Vec<_>>();
 
                     // Remove the fragments sharing an existing key if overwrite is allowed
-                    if !NO_OVERWRITE {
+                    let no_overwrite = self.settings.no_overwrite;
+                    if !no_overwrite {
                         self.fragments.retain(|f| !new_keys.contains(&&f.id))
                     }
-
                     self.fragments
                         .extend(new_fragments.into_iter().filter_map(|new_fragment| {
-                            if old_keys.contains(&new_fragment.id) && NO_OVERWRITE {
+                            if old_keys.contains(&new_fragment.id) && no_overwrite {
                                 error!("Skipping `{}`, already existing", &new_fragment.id);
                                 None
                             } else {

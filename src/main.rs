@@ -75,6 +75,10 @@ fn main() -> Result<()> {
              .help("Set the separator to use in CSV files")
              .default_value(",")
              .takes_value(true))
+        .arg(Arg::with_name("overwrite")
+             .short('W')
+             .long("allow-overwrite")
+            .help("allow FUSTA to overwrite existing sequences, when (i) appending new sequences conflicting with an existing ID, (ii) renaming sequences"))
         .get_matches();
 
     let log_level = match args.get_one::<u8>("verbose").copied().unwrap_or_default() {
@@ -128,6 +132,7 @@ fn main() -> Result<()> {
         },
         concretize_threshold: value_t!(args, "max-cache", usize).unwrap() * 1024 * 1024,
         csv_separator: value_t!(args, "csv-separator", String).unwrap(),
+        no_overwrite: args.is_present("overwrite"),
     };
     info!("Caching method:  {:#?}", settings.cache);
 

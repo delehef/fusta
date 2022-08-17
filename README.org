@@ -182,21 +182,26 @@ FUSTA only works with uncompressed (multi)FASTA files. If you wish to use FUSTA 
 USAGE:
     fusta [OPTIONS] <FASTA>
 
-OPTIONS:
-        --cache <cache>              Use either mmap, fseek(2) or memory-backed cache to extract sequences from FASTA
-                                     files. WARNING: memory caching use as much RAM as the size of the FASTA file should
-                                     be available. [default: mmap]  [possible values: file, mmap,
-                                     memory]
-    -h, --help                       Prints help information
-    -C, --max-cache <max-cache>      Set the maximum amount of memory to use to cache writes (MB) [default: 500]
-    -o, --mountpoint <mountpoint>    Specifies the directory to use as mountpoint; it will be created if it does not
-                                     exist [default: fusta]
-    -D, --no-daemon                  Do not daemonize
-    -v                               Sets the level of verbosity
-    -V, --version                    Prints version information
-
 ARGS:
-    <FASTA>    A (multi)FASTA file containing the sequences to moun
+    <FASTA>    A (multi)FASTA file containing the sequences to mount
+
+OPTIONS:
+    -C, --max-cache <max-cache>      Set the maximum amount of memory to use to cache writes (MB)
+                                     [default: 500]
+        --cache <cache>              Use either mmap, fseek(2) or memory-backed cache to extract
+                                     sequences from FASTA files. WARNING: memory caching use as much
+                                     RAM as the size of the FASTA file should be available.
+                                     [default: mmap] [possible values: file, mmap, memory]
+    -D, --no-daemon                  Do not daemonize
+    -h, --help                       Print help information
+    -o, --mountpoint <mountpoint>    Specifies the directory to use as mountpoint; it will be
+                                     created if it does not exist
+    -S, --sep <csv-separator>        Set the separator to use in CSV files [default: ,]
+    -v                               Sets the level of verbosity
+    -V, --version                    Print version information
+    -W, --allow-overwrite            allow FUSTA to overwrite existing sequences, when (i) appending
+                                     new sequences conflicting with an existing ID, (ii) renaming
+                                     sequences
 #+end_src
 
 *** =--cache=

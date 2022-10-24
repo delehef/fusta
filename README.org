@@ -126,6 +126,8 @@ fusta
     ├── Mt.seq
     └── Pt.seq
 #+end_src
+
+FUSTA supports all FUSTA files using UNIX-style line endings, including but not restricted to DNA files, protein files, gapped files, mixed-case files, and independently of their inner formatting (line wrapping, line length, /etc./).
 *** =infos.csv=
 This read-only CSV file contains a list of all the fragments present in the mounted FASTA file, with, for each of them, the standard =id= and =additional informations= field, plus a third one containing the length of the sequence.
 *** =infos.txt=
@@ -143,38 +145,42 @@ This folder is used for range-access to the sequences in the mounted FASTA file.
 ** Examples
 All the following examples assume that a FASTA file has been mounted (/e.g./ =fusta -D genome.fa=), and is unmounted after manipulation (/e.g./ =fusermount -u fusta=).
 *** Get an overview of the file content
- #+begin_src shell
- cat fusta/infos.txt
- #+end_src
+#+begin_src shell
+  cat fusta/infos.txt
+#+end_src
 *** Extract individual sequences as FASTA files
- #+begin_src shell
- cat fusta/fasta/chr{X,Y}.fa > ~/sex_chrs.fa
- #+end_src
+#+begin_src shell
+  cat fusta/fasta/chr{X,Y}.fa > ~/sex_chrs.fa
+#+end_src
 *** Extract a range of chromosome 12
- #+begin_src shell
- cat fusta/get/chr12:12000000-12002000
- #+end_src
+#+begin_src shell
+  cat fusta/get/chr12:12000000-12002000
+#+end_src
 *** Remove sequences from the original file
- #+begin_src shell
- rm fusta/seq/chr{3,5}.seq
- #+end_src
+#+begin_src shell
+  rm fusta/seq/chr{3,5}.seq
+#+end_src
 *** Add a new sequence
- #+begin_src shell
- cp more_sequences.fa fusta/append
- #+end_src
+#+begin_src shell
+  cp more_sequences.fa fusta/append
+#+end_src
+*** Upcasing a sequence
+#+begin_src shell
+  sed 's/[a-z]/\U&/g' fusta/seqs/chr21.seq | sponge fusta/seqs/chr21.seq
+#+end_src
 *** Edit the mitochondrial genome
- #+begin_src shell
- nano fusta/seq/chrMT.seq
- #+end_src
+#+begin_src shell
+  nano fusta/seq/chrMT.seq
+#+end_src
 *** Batch-rename chromosomes
- #+begin_src shell
- cd fusta/seq; for i in *; do mv ${i} chr${i}; done
- #+end_src
+#+begin_src shell
+  cd fusta/seq; for i in *; do mv ${i} chr${i}; done
+#+end_src
 *** Use independent sequences in external programs
- #+begin_src shell
- blastn mydb.db -query fusta/fasta/seq25.fa
- asgart fusta/fasta/chrX.fa fusta/asgart/chrY.fa --out result.json
- #+end_src
+#+begin_src shell
+  blastn mydb.db -query fusta/fasta/seq25.fa
+  asgart fusta/fasta/chrX.fa fusta/asgart/chrY.fa --out result.json
+#+end_src
 ** Compressed FASTA files
 FUSTA only works with uncompressed (multi)FASTA files. If you wish to use FUSTA on compressed (multi)FASTA files, we recommend to use [[https://github.com/yhoogstrate/fastafs][FASTAFS]] as an intermediary to expose a compressed (multi)FASTA file to FUSTA without requiring to ully uncompress it.
 ** Runtime options

@@ -219,7 +219,7 @@ impl Fragment {
             fasta_file: Fragment::make_virtual_file(
                 fasta_ino,
                 &format!("{}{}", id, FASTA_EXT),
-                0o664,
+                0o444,
                 label.as_bytes().len() + data_size,
                 FileClass::Fasta(RefCell::new(Vec::new())),
                 accessed,

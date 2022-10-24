@@ -876,36 +876,49 @@ impl FustaFS {
 
     fn create_subfragment(&mut self, name: &str) -> Result<FileAttr, String> {
         let error_message = format!("`{}` is not a valid subfragment scheme", name);
+        if name.contains(':') && name.contains(':') {
+            let caps = SUBFRAGMENT_RE.captures(name).ok_or_else(|| {
+                format!("{}: it should be of the form ID:START-END", error_message)
+            })?;
+            if caps.len() == 4 {
+                let ino = self.new_ino();
+                let fragment_id = self
+                    .fragment_from_id(&caps[1])
+                    .ok_or_else(|| format!("`{}` is not a fragment", &caps[1]))?
+                    .id
+                    .clone();
+                let start = str::parse::<usize>(&caps[2])
+                    .map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[1]))?;
+                let end = str::parse::<usize>(&caps[3])
+                    .map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[2]))?;
 
-        let caps = SUBFRAGMENT_RE
-            .captures(name)
-            .ok_or_else(|| format!("{}: it should be of the form ID:START-END", error_message))?;
-        if caps.len() == 4 {
-            let ino = self.new_ino();
-            let fragment_id = self
-                .fragment_from_id(&caps[1])
-                .ok_or_else(|| format!("`{}` is not a fragment", &caps[1]))?
-                .id
-                .clone();
-            let start = str::parse::<usize>(&caps[2])
-                .map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[1]))?;
-            let end = str::parse::<usize>(&caps[3])
-                .map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[2]))?;
-
-            self.subfragments
-                .iter()
-                .find(|sf| sf.fragment == fragment_id && sf.start == start && sf.end == end)
-                .map(|sf| sf.attrs)
-                .or_else(|| {
-                    let mut attrs = FustaFS::make_file_attrs(ino, 0o444);
-                    attrs.size = (end - start) as u64;
-                    let sf = SubFragment::new(&fragment_id, start, end, attrs);
-                    self.subfragments.push(sf);
-                    Some(attrs)
-                })
-                .ok_or_else(|| unimplemented!())
+                self.subfragments
+                    .iter()
+                    .find(|sf| sf.fragment == fragment_id && sf.start == start && sf.end == end)
+                    .map(|sf| sf.attrs)
+                    .or_else(|| {
+                        let mut attrs = FustaFS::make_file_attrs(ino, 0o444);
+                        attrs.size = (end - start) as u64;
+                        let sf = SubFragment::new(&fragment_id, start, end, attrs);
+                        self.subfragments.push(sf);
+                        Some(attrs)
+                    })
+                    .ok_or_else(|| unimplemented!())
+            } else {
+                Err(error_message)
+            }
         } else {
-            Err(error_message)
+            let ino = self.new_ino();
+            let fragment = self
+                .fragment_from_id(name)
+                .ok_or_else(|| format!("`{}` is not a fragment", name))?;
+            let fragment_id = fragment.id.clone();
+            let fragment_len = fragment.data.len();
+            let mut attrs = FustaFS::make_file_attrs(ino, 0o444);
+            attrs.size = fragment_len as u64;
+            let sf = SubFragment::new(&fragment_id, 0, fragment_len, attrs);
+            self.subfragments.push(sf);
+            Ok(attrs)
         }
     }
 }

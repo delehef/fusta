@@ -141,7 +141,7 @@ This folder contains all the individual sequences present in the original FASTA 
 *** =append=
 This folder should be used to add new sequences to the mounted FASTA file. Any valid fasta file copied or moved to this directory will be appended to the original FASTA files. It should be noted that the process is completely transparent and the the folder will remain empty, even though the operation is successful.
 *** =get=
-This folder is used for range-access to the sequences in the mounted FASTA file. Although it is empty, any read access to a (non-existing) file following the pattern =SEQID:START-END= will return the corresponding range (0-indexed) in the specified sequence. It should be noted that the access skip headers and newlines, so that the =START-END= coordinates map to actual loci in the corresponding sequence and not to bytes in the mounted FASTA file.
+This folder is used for range-access to the sequences in the mounted FASTA file. Although it is empty, any read access to a (non-existing) file following the pattern =SEQID:START-END= will return the corresponding range (1-indexed, fully-closed) in the specified sequence. It should be noted that the access skip headers and newlines, so that the =START-END= coordinates map to actual loci in the corresponding sequence and not to bytes in the mounted FASTA file.
 ** Examples
 All the following examples assume that a FASTA file has been mounted (/e.g./ =fusta -D genome.fa=), and is unmounted after manipulation (/e.g./ =fusermount -u fusta=).
 *** Get an overview of the file content
@@ -227,6 +227,8 @@ If you have any question or if you encounter a problem, do not hesitate to [[htt
 * Acknowledgments
 FUSTA is standing on the shoulders of, among others, [[https://github.com/cberner/fuser][fuser]], [[https://github.com/clap-rs/clap][clap]], [[https://github.com/RazrFalcon/memmap2-rs][memmap2]] and [[https://github.com/knsd/daemonize][daemonize]].
 * Changelog
+** v1.7
+- Use 1-based, fully-closed genomic coordinates
 ** v1.6.1
 - Accept more characters as FASTA sequences: =\n - _ . + ==
 ** v1.6
@@ -234,7 +236,7 @@ FUSTA is standing on the shoulders of, among others, [[https://github.com/cberne
 - Improved error handling
 - Better notifications
 - Add a flag to allow overwrite of existing sequences as a side-effect
-- Only ASCII alphanumericel content can be written to sequence files
+- Only ASCII alphanumerical content can be written to sequence files
 - Refuse to open FASTA files with IDs containing characters invalid in a filename
 ** v1.5.7
 - Update dependencies

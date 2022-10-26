@@ -415,12 +415,18 @@ struct PendingAppend {
 #[derive(Debug)]
 struct SubFragment {
     fragment: String,
-    start: usize,
-    end: usize,
+    start: isize,
+    end: isize,
     attrs: FileAttr,
 }
 impl SubFragment {
-    fn new(fragment: &str, start: usize, end: usize, attrs: FileAttr) -> SubFragment {
+    fn new(fragment: &str, start: isize, end: isize, attrs: FileAttr) -> SubFragment {
+        let start = if start < 0 {
+            warn!("Invalid start position {}; using 1 instead", start);
+            0
+        } else {
+            start
+        };
         let end = if end < start {
             warn!(
                 "{}:{}-{}: {} < {}; using {} instead",
@@ -887,9 +893,10 @@ impl FustaFS {
                     .ok_or_else(|| format!("`{}` is not a fragment", &caps[1]))?
                     .id
                     .clone();
-                let start = str::parse::<usize>(&caps[2])
-                    .map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[1]))?;
-                let end = str::parse::<usize>(&caps[3])
+                let start = str::parse::<isize>(&caps[2])
+                    .map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[1]))?
+                    - 1;
+                let end = str::parse::<isize>(&caps[3])
                     .map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[2]))?;
 
                 self.subfragments
@@ -898,8 +905,8 @@ impl FustaFS {
                     .map(|sf| sf.attrs)
                     .or_else(|| {
                         let mut attrs = FustaFS::make_file_attrs(ino, 0o444);
-                        attrs.size = (end - start) as u64;
                         let sf = SubFragment::new(&fragment_id, start, end, attrs);
+                        attrs.size = (sf.end - sf.start) as u64;
                         self.subfragments.push(sf);
                         Some(attrs)
                     })
@@ -916,7 +923,7 @@ impl FustaFS {
             let fragment_len = fragment.data.len();
             let mut attrs = FustaFS::make_file_attrs(ino, 0o444);
             attrs.size = fragment_len as u64;
-            let sf = SubFragment::new(&fragment_id, 0, fragment_len, attrs);
+            let sf = SubFragment::new(&fragment_id, 0, fragment_len.try_into().unwrap(), attrs);
             self.subfragments.push(sf);
             Ok(attrs)
         }

@@ -421,27 +421,6 @@ struct SubFragment {
 }
 impl SubFragment {
     fn new(fragment: &str, start: isize, end: isize, attrs: FileAttr) -> SubFragment {
-        let start = if start < 0 {
-            warn!("Invalid start position {}; using 1 instead", start);
-            0
-        } else {
-            start
-        };
-        let end = if end < start {
-            warn!(
-                "{}:{}-{}: {} < {}; using {} instead",
-                fragment,
-                start,
-                end,
-                end,
-                start,
-                std::cmp::max(start, end)
-            );
-            std::cmp::max(start, end)
-        } else {
-            end
-        };
-
         SubFragment {
             fragment: fragment.to_owned(),
             start,
@@ -881,8 +860,31 @@ impl FustaFS {
     }
 
     fn create_subfragment(&mut self, name: &str) -> Result<FileAttr, String> {
+        fn clear_coordinates(start: isize, end: isize) -> (isize, isize) {
+            let start = if start < 0 {
+                warn!("Invalid start position {}; using 1 instead", start);
+                0
+            } else {
+                start
+            };
+            let end = if end < start {
+                warn!(
+                    "{}-{}: {} < {}; using {} instead",
+                    start,
+                    end,
+                    end,
+                    start,
+                    std::cmp::max(start, end)
+                );
+                std::cmp::max(start, end)
+            } else {
+                end
+            };
+            (start, end)
+        }
+
         let error_message = format!("`{}` is not a valid subfragment scheme", name);
-        if name.contains(':') && name.contains(':') {
+        if name.contains(':') && name.contains('-') {
             let caps = SUBFRAGMENT_RE.captures(name).ok_or_else(|| {
                 format!("{}: it should be of the form ID:START-END", error_message)
             })?;
@@ -898,6 +900,7 @@ impl FustaFS {
                     - 1;
                 let end = str::parse::<isize>(&caps[3])
                     .map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[2]))?;
+                let (start, end) = clear_coordinates(start, end);
 
                 self.subfragments
                     .iter()

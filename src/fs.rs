@@ -904,9 +904,10 @@ impl FustaFS {
                     .find(|sf| sf.fragment == fragment_id && sf.start == start && sf.end == end)
                     .map(|sf| sf.attrs)
                     .or_else(|| {
+                        let size = (end - start) as u64;
                         let mut attrs = FustaFS::make_file_attrs(ino, 0o444);
+                        attrs.size = size;
                         let sf = SubFragment::new(&fragment_id, start, end, attrs);
-                        attrs.size = (sf.end - sf.start) as u64;
                         self.subfragments.push(sf);
                         Some(attrs)
                     })

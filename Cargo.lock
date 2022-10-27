@@ -356,6 +356,7 @@ dependencies = [
  "log",
  "maplit",
  "memmap2",
+ "multi-map",
  "notify-rust",
  "num-format",
  "regex",
@@ -571,6 +572,12 @@ checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
 dependencies = [
  "autocfg",
 ]
+
+[[package]]
+name = "multi-map"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bba551d6d795f74a01767577ea8339560bf0a65354e0417b7e915ed608443d46"
 
 [[package]]
 name = "nix"

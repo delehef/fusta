@@ -5,6 +5,7 @@ use fuser::*;
 use libc::*;
 use log::*;
 use maplit::*;
+use multi_map::MultiMap;
 use regex::Regex;
 use smartstring::SmartString;
 use std::cell::RefCell;
@@ -447,7 +448,7 @@ pub struct FustaFS {
 
     pending_appends: BTreeMap<String, PendingAppend>,
 
-    subfragments: Vec<SubFragment>,
+    subfragments: MultiMap<String, u64, SubFragment>, // name -> inode -> SubFragment
 
     dirty: bool,
 }
@@ -495,8 +496,8 @@ impl FustaFS {
             metadata,
             settings,
             current_ino: FIRST_INO,
-            pending_appends: BTreeMap::new(),
-            subfragments: Vec::new(),
+            pending_appends: Default::default(),
+            subfragments: Default::default(),
             dirty: false,
         };
 
@@ -725,7 +726,7 @@ impl FustaFS {
     }
 
     fn subfragment_from_ino(&self, ino: u64) -> Option<&SubFragment> {
-        self.subfragments.iter().find(|sf| sf.attrs.ino == ino)
+        self.subfragments.get_alt(&ino)
     }
 
     fn make_info_buffer(&mut self) {
@@ -901,17 +902,17 @@ impl FustaFS {
                 let end = str::parse::<isize>(&caps[3])
                     .map_err(|_| format!("{}: `{}` is not an integer", &error_message, &caps[2]))?;
                 let (start, end) = clear_coordinates(start, end);
+                let key = format!("{}:{}-{}", fragment_id, start, end);
 
                 self.subfragments
-                    .iter()
-                    .find(|sf| sf.fragment == fragment_id && sf.start == start && sf.end == end)
+                    .get(&key)
                     .map(|sf| sf.attrs)
                     .or_else(|| {
                         let size = (end - start) as u64;
                         let mut attrs = FustaFS::make_file_attrs(ino, 0o444);
                         attrs.size = size;
                         let sf = SubFragment::new(&fragment_id, start, end, attrs);
-                        self.subfragments.push(sf);
+                        self.subfragments.insert(key, ino, sf);
                         Some(attrs)
                     })
                     .ok_or_else(|| unimplemented!())
@@ -928,7 +929,7 @@ impl FustaFS {
             let mut attrs = FustaFS::make_file_attrs(ino, 0o444);
             attrs.size = fragment_len as u64;
             let sf = SubFragment::new(&fragment_id, 0, fragment_len.try_into().unwrap(), attrs);
-            self.subfragments.push(sf);
+            self.subfragments.insert(name.to_owned(), ino, sf);
             Ok(attrs)
         }
     }

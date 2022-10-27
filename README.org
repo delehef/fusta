@@ -31,7 +31,6 @@ cargo install --git https://github.com/delehef/fusta
 
 You can now find =fusta= in =$HOME/cargo/bin/=; you should add this this path to your =$PATH= for easier use.
 ** Debian
-First, install the required dependencies:
 #+begin_src bash
 sudo apt install curl fuse3 libfuse3-dev
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh # Debian cargo is outdated
@@ -44,7 +43,6 @@ cargo install --git https://github.com/delehef/fusta
 #+end_src
 You can now find =fusta= in =$HOME/cargo/bin/=; you should add this this path to your =$PATH= for easier use.
 ** Scientific Linux
-First, install the required dependencies:
 #+begin_src bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 sudo yum install fuse3 fuse3-devel
@@ -62,19 +60,18 @@ On macOS, you will need to install the build tools if you have not them ready ye
 
 You must then download and install [[https://osxfuse.github.io/][FUSE for macOS]] in order to be able to use FUSTA.
 
-Finalyy, to build FUSTA, you need to install the [[https://www.rust-lang.org/en-US/install.html][Rust compiler]]. You can then build FUSTA by running =cargo=, the Rust build tool:
+Finally, to build FUSTA, you need to install the [[https://www.rust-lang.org/en-US/install.html][Rust compiler]]. You can then build FUSTA by running =cargo=, the Rust build tool:
 #+begin_src
 cargo install --git https://github.com/delehef/fusta
 #+end_src
 ** FreeBSD
-First, install the required dependencies:
 #+begin_src bash
 sudo pkg install rust pkgconf fusefs-libs # Install build dependencies
 sudo sysctl vfs.usermount=1  # enable FUSE mounting without requiring administrator permissions
 sudo kldload fuse # load the FUSE kernel module
 #+end_src
 
-Then, install FUSTA /per se/:
+Finally, install FUSTA:
 #+begin_src
 cargo install --git https://github.com/delehef/fusta
 #+end_src

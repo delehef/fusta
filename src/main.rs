@@ -29,6 +29,7 @@ struct RunEnvironment {
     created_mountpoint: bool,
 }
 fn main() -> Result<()> {
+    human_panic::setup_panic!();
     let args =
         App::new("fusta")
         .setting(AppSettings::ColoredHelp)

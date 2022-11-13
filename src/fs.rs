@@ -660,6 +660,14 @@ impl FustaFS {
                     .write_all(&fragment.data())
                     .unwrap_or_else(|_| panic!("Unable to write to `{}`", tmp_filename));
                 index += fragment.data().len();
+                if let Some(c) = fragment.data().last() {
+                    if *c != b'\n' {
+                        tmp_file
+                            .write_all(&[b'\n'])
+                            .unwrap_or_else(|_| panic!("Unable to write to `{}`", tmp_filename));
+                        index += 1;
+                    }
+                }
 
                 fragment.data = Backing::File(self.filename.clone().into(), last_start, index);
                 fragment.refresh_virtual_files();

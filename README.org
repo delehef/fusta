@@ -13,6 +13,10 @@ FUSTA is a FUSE-based virtual filesystem mirroring a (multi)FASTA file as a hier
 
 The virtual files exposed by FUSTA behave like standard flat text files, and provide automatic compatibility with all existing programs. When handling large multiFASTA files, the intrinsic file caching capacities of the OS are leveraged to ensure the best experience to the user.
 
+** Citation
+
+If you use FUSTA, please cite [[https://academic.oup.com/bioinformaticsadvances/article/2/1/vbac091/6851693][FUSTA: leveraging FUSE for manipulation of multiFASTA files at scale]], https://doi.org/10.1093/bioadv/vbac091
+
 ** Licensing
 FUSTA is distributed under the CeCILL-C (LGPLv3 compatible) license. Please see the LICENSE file for details.
 * Installation

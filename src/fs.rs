@@ -287,17 +287,22 @@ impl Fragment {
     fn chunk(&self, offset: i64, size: u32) -> Box<[u8]> {
         match &self.data {
             Backing::File(filename, start, _) => {
+                let size = size as usize;
+                let offset = offset as usize;
                 let mut buffer = vec![0u8; size as usize];
                 let mut f = fs::File::open(filename.as_str())
                     .unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
                 f.seek(SeekFrom::Start(*start as u64 + offset as u64))
                     .unwrap_or_else(|_| panic!("Unable to seek in `{}`", filename));
-                f.read_exact(&mut buffer).unwrap_or_else(|_| {
+
+                f.read_exact(&mut buffer).unwrap_or_else(|e| {
                     panic!(
-                        "Unable to read {}:{} from `{}`",
-                        offset,
-                        offset + size as i64,
-                        filename
+                        "Unable to read {}:{} from `{}` ({}): {}",
+                        start + offset,
+                        start + offset + size,
+                        filename,
+                        f.metadata().unwrap().len(),
+                        e
                     )
                 });
                 buffer.into_boxed_slice()

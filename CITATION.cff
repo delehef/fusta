@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+title: FUSTA
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Franklin
+    family-names: Delehelle
+    email: github@odena.eu
+    orcid: 'https://orcid.org/0000-0003-0939-3835'
+    affiliation: IBENS
+repository-code: 'https://github.com/delehef/fusta'
+abstract: >-
+  FUSTA is a FUSE-based virtual filesystem mirroring a
+  (multi)FASTA file as a hierarchy of individual virtual
+  files, simplifying efficient data extraction and
+  bulk/automated processing of FASTA files.
+keywords:
+  - FASTA
+  - DNA
+  - bioinformatics
+license: CECILL-C

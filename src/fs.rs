@@ -417,20 +417,22 @@ struct PendingAppend {
     seq_ino: u64,
 }
 
-/// A Subfragment represent a portion of a fragment (chr:start-end)
+/// A Subfragment represents a portion of a fragment (chr:start-end)
 #[derive(Debug)]
 struct SubFragment {
+    /// The parent fragment
     fragment: String,
+    /// Starting offset in the parent fragment
     start: isize,
-    end: isize,
+    /// The attributes of this subfragment inode. NOTE: that the subfragment
+    /// size is encoded in those.
     attrs: FileAttr,
 }
 impl SubFragment {
-    fn new(fragment: &str, start: isize, end: isize, attrs: FileAttr) -> SubFragment {
+    fn new(fragment: &str, start: isize, attrs: FileAttr) -> SubFragment {
         SubFragment {
             fragment: fragment.to_owned(),
             start,
-            end,
             attrs,
         }
     }
@@ -513,7 +515,7 @@ impl FustaFS {
 
     fn make_dir_attrs(ino: u64, perms: u16) -> FileAttr {
         FileAttr {
-            ino: ino,
+            ino,
             size: 0,
             blocks: 0,
             atime: std::time::SystemTime::now(),
@@ -533,7 +535,7 @@ impl FustaFS {
 
     fn make_file_attrs(ino: u64, perms: u16) -> FileAttr {
         FileAttr {
-            ino: ino,
+            ino,
             size: 0,
             blocks: 0,
             atime: std::time::SystemTime::now(),
@@ -549,6 +551,12 @@ impl FustaFS {
             flags: 0,
             blksize: 512,
         }
+    }
+
+    fn make_file_attrs_with_size(ino: u64, perms: u16, size: u64) -> FileAttr {
+        let mut attrs = Self::make_file_attrs(ino, perms);
+        attrs.size = size;
+        attrs
     }
 
     fn new_ino(&mut self) -> u64 {
@@ -922,9 +930,8 @@ impl FustaFS {
                     .map(|sf| sf.attrs)
                     .or_else(|| {
                         let size = (end - start) as u64;
-                        let mut attrs = FustaFS::make_file_attrs(ino, 0o444);
-                        attrs.size = size;
-                        let sf = SubFragment::new(&fragment_id, start, end, attrs);
+                        let attrs = FustaFS::make_file_attrs_with_size(ino, 0o444, size);
+                        let sf = SubFragment::new(&fragment_id, start, attrs);
                         self.subfragments.insert(key, ino, sf);
                         Some(attrs)
                     })
@@ -939,9 +946,9 @@ impl FustaFS {
                 .ok_or_else(|| format!("`{}` is not a fragment", name))?;
             let fragment_id = fragment.id.clone();
             let fragment_len = fragment.data.len();
-            let mut attrs = FustaFS::make_file_attrs(ino, 0o444);
-            attrs.size = fragment_len as u64;
-            let sf = SubFragment::new(&fragment_id, 0, fragment_len.try_into().unwrap(), attrs);
+            let attrs =
+                FustaFS::make_file_attrs_with_size(ino, 0o444, fragment_len.try_into().unwrap());
+            let sf = SubFragment::new(&fragment_id, 0, attrs);
             self.subfragments.insert(name.to_owned(), ino, sf);
             Ok(attrs)
         }
@@ -1347,7 +1354,7 @@ impl Filesystem for FustaFS {
 
             // We write to an existing fragment
             if self.fragment_from_ino(ino).is_some() {
-                let mut fragment = self
+                let fragment = self
                     .mut_fragment_from_ino(ino)
                     .expect("Something went very wrong");
                 // As soon as there's a write, we have to switch this fragment to a buffer-backed storage
@@ -1477,7 +1484,7 @@ impl Filesystem for FustaFS {
                                     .unwrap()
                             {
                                 // Redim the file
-                                let mut fragment = self.mut_fragment_from_ino(ino).unwrap();
+                                let fragment = self.mut_fragment_from_ino(ino).unwrap();
                                 if !matches!(fragment.data, Backing::Buffer(_)) {
                                     fragment.data = Backing::Buffer(fragment.data().to_vec());
                                 }

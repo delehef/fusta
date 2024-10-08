@@ -21,14 +21,14 @@ anyhow = "1"
 ascii_table = "4"
 clap = { version = "3.2", features = ["cargo"] }
 ctrlc = { version = "3.0", features = ["termination"] }
-daemonize = "0.4"
-fuser = "0.11"
-human-panic = "1"
+daemonize = "0.5"
+fuser = "0.14"
+human-panic = "2"
 lazy_static = "1"
 libc = "0.2"
 log = "0.4"
 maplit = "1.0"
-memmap2 = "0.5"
+memmap2 = "0.9"
 multi-map = "1.3"
 notify-rust = { version = "4", optional = true }
 num-format = "0.4"

@@ -66,7 +66,7 @@ fn main() -> Result<()> {
         .arg(Arg::with_name("cache")
              .long("cache")
              .help("Use either mmap, fseek(2) or memory-backed cache to extract sequences from FASTA files. WARNING: memory caching use as much RAM as the size of the FASTA file should be available.")
-             .possible_values(&["file", "mmap", "memory"])
+             .possible_values(["file", "mmap", "memory"])
              .default_value("mmap"))
 
     // Other options

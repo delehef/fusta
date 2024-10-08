@@ -270,7 +270,7 @@ impl Fragment {
     fn data(&self) -> Box<[u8]> {
         match &self.data {
             Backing::File(filename, start, _) => {
-                let mut buffer = vec![0u8; self.data_size() as usize];
+                let mut buffer = vec![0u8; self.data_size()];
                 let mut f = fs::File::open(filename.as_str())
                     .unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
                 f.seek(SeekFrom::Start(*start as u64))
@@ -289,7 +289,7 @@ impl Fragment {
             Backing::File(filename, start, _) => {
                 let size = size as usize;
                 let offset = offset as usize;
-                let mut buffer = vec![0u8; size as usize];
+                let mut buffer = vec![0u8; size];
                 let mut f = fs::File::open(filename.as_str())
                     .unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
                 f.seek(SeekFrom::Start(*start as u64 + offset as u64))
@@ -351,8 +351,8 @@ impl Fragment {
                 .iter()
                 .cloned()
                 .filter(|&c| c != b'\n')
-                .skip(offset as usize)
-                .take(size as usize)
+                .skip(offset)
+                .take(size)
                 .collect::<Vec<_>>()
                 .into(),
         }
@@ -1114,7 +1114,7 @@ impl Filesystem for FustaFS {
                                                 .iter()
                                                 .chain(data_chunk.iter())
                                                 .cloned()
-                                                .take(end as usize)
+                                                .take(end)
                                                 .collect::<Vec<_>>(),
                                         );
                                     }
@@ -1172,7 +1172,7 @@ impl Filesystem for FustaFS {
                     LABELS_FILE      => (FileType::RegularFile, LABELS_FILE_NAME),
                 };
                 for (o, (ino, entry)) in entries.iter().enumerate().skip(offset as usize) {
-                    let _ = reply.add(*ino, o as i64 + 1, entry.0, &entry.1);
+                    let _ = reply.add(*ino, o as i64 + 1, entry.0, entry.1);
                 }
                 reply.ok();
             }
@@ -1347,7 +1347,7 @@ impl Filesystem for FustaFS {
             // Check that we only write valid FASTA content
             if !data.iter().all(|&c| is_fasta_char(c)) {
                 warn!("Invalid FASTA sequence found when writing");
-                notify(format!("Invalid FASTA sequence found when writing"));
+                notify("Invalid FASTA sequence found when writing");
                 reply.error(EIO);
                 return;
             }

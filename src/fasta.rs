@@ -44,7 +44,10 @@ impl<T: Read> Iterator for FastaReader<T> {
 
             if let Some(name) = line.strip_prefix('>') {
                 if let Some(ref current_header) = self.current_header {
-                    let split = current_header.split(' ').collect::<Vec<_>>();
+                    let split = current_header
+                        .split(' ')
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<_>>();
                     let r = Fragment {
                         id: split[0].into(),
                         name: if split.len() > 1 {

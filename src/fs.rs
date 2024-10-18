@@ -1314,7 +1314,7 @@ impl Filesystem for FustaFS {
                 };
                 let pending = PendingAppend {
                     data: Vec::new(),
-                    attrs: attrs,
+                    attrs,
                     seq_ino: self.new_ino(),
                     fasta_ino: self.new_ino(),
                 };
@@ -1344,14 +1344,6 @@ impl Filesystem for FustaFS {
             error!("{} is not writeable", ino);
             reply.error(EACCES);
         } else {
-            // Check that we only write valid FASTA content
-            if !data.iter().all(|&c| is_fasta_char(c)) {
-                warn!("Invalid FASTA sequence found when writing");
-                notify("Invalid FASTA sequence found when writing");
-                reply.error(EIO);
-                return;
-            }
-
             // We write to an existing fragment
             if self.fragment_from_ino(ino).is_some() {
                 let fragment = self

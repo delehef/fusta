@@ -959,6 +959,10 @@ impl FustaFS {
     }
 }
 
+#[cfg(test)]
+#[path = "fs_tests.rs"]
+mod tests;
+
 impl Drop for FustaFS {
     fn drop(&mut self) {
         self.concretize(true);

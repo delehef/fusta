@@ -133,7 +133,7 @@ fn main() -> Result<()> {
         },
         concretize_threshold: value_t!(args, "max-cache", usize).unwrap() * 1024 * 1024,
         csv_separator: value_t!(args, "csv-separator", String).unwrap(),
-        no_overwrite: args.is_present("overwrite"),
+        no_overwrite: !args.is_present("overwrite"),
     };
     info!("Caching method:  {:#?}", settings.cache);
 

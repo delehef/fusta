@@ -1633,7 +1633,10 @@ impl Filesystem for FustaFS {
     ) {
         debug!("RELEASE {}", ino);
         if self.is_writeable(ino) {
-            for pending in self.pending_appends.iter() {
+            for pending in self
+                .pending_appends
+                .extract_if(.., |_, pending| pending.attrs.ino == ino)
+            {
                 // FS is dirty at the first pending fragment
                 self.dirty = true;
 

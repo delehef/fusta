@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::ffi::OsStr;
 use std::fs;
+use std::io::BufReader;
 use std::time::{Duration, SystemTime};
 type SString = SmartString<smartstring::LazyCompact>;
 
@@ -30,7 +31,7 @@ const TTL: Duration = Duration::from_secs(1);
 
 const FASTA_EXT: &str = ".fa";
 const SEQ_EXT: &str = ".seq";
-const DOTLESS_SEQ_EXT: &str = ".seq";
+const DOTLESS_SEQ_EXT: &str = "seq";
 
 // Virtual directories
 const ROOT_DIR: u64 = 1;
@@ -294,7 +295,6 @@ impl Fragment {
                     .unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
                 f.seek(SeekFrom::Start(*start as u64 + offset as u64))
                     .unwrap_or_else(|_| panic!("Unable to seek in `{}`", filename));
-
                 f.read_exact(&mut buffer).unwrap_or_else(|e| {
                     panic!(
                         "Unable to read {}:{} from `{}` ({}): {}",
@@ -326,9 +326,11 @@ impl Fragment {
         let size = size as usize;
         match &self.data {
             Backing::File(filename, start, _) => {
-                let mut f = fs::File::open(filename.as_str())
-                    .unwrap_or_else(|_| panic!("Unable to open `{}`", filename));
-                f.seek(SeekFrom::Start(*start as u64 + offset as u64))
+                let mut f = BufReader::new(
+                    fs::File::open(filename.as_str())
+                        .unwrap_or_else(|_| panic!("Unable to open `{}`", filename)),
+                );
+                f.seek(SeekFrom::Start(*start as u64))
                     .unwrap_or_else(|_| panic!("Unable to seek in `{}`", filename));
                 f.bytes()
                     .filter_map(Result::ok)
@@ -571,8 +573,9 @@ impl FustaFS {
 
     fn read_fasta(&mut self, filename: &str) -> Result<()> {
         info!("Reading {}...", filename);
-        let fasta_file =
-            fs::File::open(filename).context(format!("failed to open file `{}`", filename))?;
+        let fasta_file = BufReader::new(
+            fs::File::open(filename).context(format!("failed to open file `{}`", filename))?,
+        );
         let fragments =
             FastaReader::new(fasta_file, self.settings.cache == Cache::RAM).collect::<Vec<_>>();
         let mut keys = fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
@@ -582,9 +585,7 @@ impl FustaFS {
             anyhow::bail!("`{}` contains duplicated keys", filename)
         }
 
-        let file = fs::File::open(filename).context(format!("Failed to open `{}`", filename))?;
         self.filename = filename.to_owned();
-
         self.fragments = fragments
             .into_iter()
             .map(|fragment| {
@@ -602,7 +603,10 @@ impl FustaFS {
                                 memmap2::MmapOptions::new()
                                     .offset(fragment.pos.0 as u64)
                                     .len(fragment.len)
-                                    .map(&file)
+                                    .map(
+                                        &fs::File::open(filename)
+                                            .context(format!("Failed to open `{}`", filename))?,
+                                    )
                                     .unwrap()
                             }),
                             Cache::File => {
@@ -1468,6 +1472,7 @@ impl Filesystem for FustaFS {
                                 if let Some(fragment) = self.mut_fragment_from_ino(ino) {
                                     fragment.data = Backing::Buffer(Vec::new());
                                     fragment.refresh_virtual_files();
+                                    self.dirty = true;
                                 }
                             } else if size
                                 != self
@@ -1637,54 +1642,51 @@ impl Filesystem for FustaFS {
                 .pending_appends
                 .extract_if(.., |_, pending| pending.attrs.ino == ino)
             {
+                trace!("RELEASE: {}", pending.0);
+
                 // FS is dirty at the first pending fragment
                 self.dirty = true;
 
-                if pending.1.attrs.ino == ino {
-                    trace!("RELEASE: {}", pending.0);
-                    trace!("Dumping...");
-                    // Dump the pending in its own file and parse it
-                    let mut tmpfile =
-                        tempfile::tempfile().expect("Unable to create a temporary file");
-                    tmpfile
-                        .write_all(&pending.1.data)
-                        .expect("Unable to write to temporary file");
-                    trace!("Parsing...");
-                    tmpfile
-                        .seek(SeekFrom::Start(0))
-                        .expect("Unable to seek in temporary file");
-                    let new_fragments = FastaReader::new(&tmpfile, true).collect::<Vec<_>>();
-                    let new_keys = new_fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
-                    let old_keys = self
-                        .fragments
-                        .iter()
-                        .map(|f| &f.id)
-                        .cloned()
-                        .collect::<Vec<_>>();
+                // Dump the pending in its own file and parse it
+                let mut tmpfile = tempfile::tempfile().expect("Unable to create a temporary file");
+                tmpfile
+                    .write_all(&pending.1.data)
+                    .expect("Unable to write to temporary file");
+                trace!("Parsing...");
+                tmpfile
+                    .seek(SeekFrom::Start(0))
+                    .expect("Unable to seek in temporary file");
+                let new_fragments = FastaReader::new(&tmpfile, true).collect::<Vec<_>>();
+                let new_keys = new_fragments.iter().map(|f| &f.id).collect::<Vec<_>>();
+                let old_keys = self
+                    .fragments
+                    .iter()
+                    .map(|f| &f.id)
+                    .cloned()
+                    .collect::<Vec<_>>();
 
-                    // Remove the fragments sharing an existing key if overwrite is allowed
-                    let no_overwrite = self.settings.no_overwrite;
-                    if !no_overwrite {
-                        self.fragments.retain(|f| !new_keys.contains(&&f.id))
-                    }
-                    self.fragments
-                        .extend(new_fragments.into_iter().filter_map(|new_fragment| {
-                            if old_keys.contains(&new_fragment.id) && no_overwrite {
-                                error!("Skipping `{}`, already existing", &new_fragment.id);
-                                None
-                            } else {
-                                Some(Fragment::new(
-                                    &new_fragment.id,
-                                    &new_fragment.name,
-                                    Backing::PureBuffer(new_fragment.seq.unwrap()),
-                                    pending.1.seq_ino,
-                                    pending.1.fasta_ino,
-                                    pending.1.attrs.atime,
-                                    pending.1.attrs.mtime,
-                                ))
-                            }
-                        }));
+                // Remove the fragments sharing an existing key if overwrite is allowed
+                let no_overwrite = self.settings.no_overwrite;
+                if !no_overwrite {
+                    self.fragments.retain(|f| !new_keys.contains(&&f.id))
                 }
+                self.fragments
+                    .extend(new_fragments.into_iter().filter_map(|new_fragment| {
+                        if old_keys.contains(&new_fragment.id) && no_overwrite {
+                            error!("Skipping `{}`, already existing", &new_fragment.id);
+                            None
+                        } else {
+                            Some(Fragment::new(
+                                &new_fragment.id,
+                                &new_fragment.name,
+                                Backing::PureBuffer(new_fragment.seq.unwrap()),
+                                pending.1.seq_ino,
+                                pending.1.fasta_ino,
+                                pending.1.attrs.atime,
+                                pending.1.attrs.mtime,
+                            ))
+                        }
+                    }));
             }
             self.concretize(false);
             self.refresh_metadata(false);
